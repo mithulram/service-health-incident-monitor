@@ -1,43 +1,84 @@
 import unittest
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from service_monitor.app import app, state
+from service_monitor.app import create_app
+from service_monitor.state import MonitorState
+
+
+STATIC_DIR = Path(__file__).resolve().parents[1] / "src" / "service_monitor" / "static"
 
 
 class ServiceMonitorTests(unittest.TestCase):
-    def setUp(self):
-        self.client = TestClient(app)
+    def test_fresh_monitor_starts_with_documented_request_counts(self):
+        summary = MonitorState().summary()
+        self.assertEqual(summary["requests_successful"], 399)
+        self.assertEqual(summary["requests_failed"], 1)
+        self.assertEqual(summary["requests_total"], 400)
 
     def test_health_and_readiness_are_available(self):
-        self.assertEqual(self.client.get("/healthz").json(), {"status": "ok"})
-        self.assertEqual(self.client.get("/readyz").json(), {"status": "ready"})
+        client = TestClient(create_app(MonitorState()))
+        self.assertEqual(client.get("/healthz").json(), {"status": "ok"})
+        self.assertEqual(client.get("/readyz").json(), {"status": "ready"})
 
     def test_summary_exposes_slo_and_error_budget(self):
-        payload = self.client.get("/api/v1/summary").json()
+        client = TestClient(create_app(MonitorState()))
+        payload = client.get("/api/v1/summary").json()
         self.assertEqual(payload["slo_target_ratio"], 0.995)
         self.assertGreater(payload["availability_ratio"], payload["slo_target_ratio"])
         self.assertGreater(payload["error_budget_remaining_ratio"], 0)
         self.assertEqual(payload["open_incident_count"], 1)
 
-    def test_metrics_follow_prometheus_text_conventions(self):
-        response = self.client.get("/metrics")
+    def test_metrics_use_process_lifetime_error_budget_wording(self):
+        client = TestClient(create_app(MonitorState()))
+        response = client.get("/metrics")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/plain", response.headers["content-type"])
         self.assertIn("# HELP service_requests_total", response.text)
-        self.assertIn("# TYPE service_slo_availability_ratio gauge", response.text)
+        self.assertIn("process-lifetime synthetic error-budget", response.text)
+        self.assertNotIn("monthly error-budget", response.text)
         self.assertTrue(response.text.endswith("\n"))
 
     def test_simulated_server_error_reduces_error_budget(self):
-        before = self.client.get("/api/v1/slo").json()["error_budget_remaining_ratio"]
-        response = self.client.post("/api/v1/simulate/request", json={"status_code": 503})
+        client = TestClient(create_app(MonitorState(), demo_mode=True))
+        before = client.get("/api/v1/slo").json()["error_budget_remaining_ratio"]
+        response = client.post("/api/v1/simulate/request", json={"status_code": 503})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["recorded_status_code"], 503)
-        after = self.client.get("/api/v1/slo").json()["error_budget_remaining_ratio"]
+        after = client.get("/api/v1/slo").json()["error_budget_remaining_ratio"]
         self.assertLess(after, before)
 
+    def test_simulated_non_5xx_increments_success_count(self):
+        client = TestClient(create_app(MonitorState(), demo_mode=True))
+        before = client.get("/api/v1/summary").json()["requests_successful"]
+        response = client.post("/api/v1/simulate/request", json={"status_code": 200})
+        self.assertEqual(response.status_code, 200)
+        after = client.get("/api/v1/summary").json()["requests_successful"]
+        self.assertEqual(after, before + 1)
+
+    def test_simulation_is_disabled_without_demo_mode(self):
+        client = TestClient(create_app(MonitorState(), demo_mode=False))
+        response = client.post("/api/v1/simulate/request", json={"status_code": 503})
+        self.assertEqual(response.status_code, 403)
+
+    def test_isolated_apps_do_not_share_simulation_state(self):
+        client_a = TestClient(create_app(MonitorState(), demo_mode=True))
+        client_b = TestClient(create_app(MonitorState(), demo_mode=True))
+        before_b = client_b.get("/api/v1/summary").json()["requests_total"]
+        client_a.post("/api/v1/simulate/request", json={"status_code": 503})
+        after_b = client_b.get("/api/v1/summary").json()["requests_total"]
+        self.assertEqual(before_b, after_b)
+
     def test_incidents_include_open_and_resolved_context(self):
-        incidents = self.client.get("/api/v1/incidents").json()
+        client = TestClient(create_app(MonitorState()))
+        incidents = client.get("/api/v1/incidents").json()
         self.assertEqual(len(incidents), 2)
         self.assertEqual(incidents[0]["status"], "OPEN")
         self.assertEqual(incidents[1]["status"], "RESOLVED")
+
+    def test_dashboard_builds_incident_rows_without_inner_html(self):
+        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn(".innerHTML", html)
+        self.assertIn("createElement", html)
+        self.assertIn("textContent", html)

@@ -18,17 +18,47 @@
   <header><h1>Service Health &amp; Incident Monitor</h1><p>An operational view for a synthetic checkout service. The dashboard consumes live health, SLO, error-budget, and incident endpoints from the FastAPI application.</p><div class="status"><span class="dot"></span><span id="health">Checking health...</span></div></header>
   <section class="cards" aria-label="Operational summary"><article class="card"><span>Availability</span><strong id="availability">-</strong></article><article class="card"><span>SLO target</span><strong id="target">-</strong></article><article class="card"><span>Error budget remaining</span><strong id="budget">-</strong></article><article class="card"><span>Open incidents</span><strong id="open-incidents">-</strong></article></section>
   <section><h2>Current incidents</h2><table><thead><tr><th>ID</th><th>Service</th><th>Severity</th><th>Status</th><th>Summary</th></tr></thead><tbody id="incidents"></tbody></table></section>
-  <section><h2>Operational interface</h2><p><code>GET /metrics</code> exposes Prometheus text metrics. <code>POST /api/v1/simulate/request</code> records a synthetic response status and recalculates the SLO summary.</p></section>
+  <section><h2>Operational interface</h2><p><code>GET /metrics</code> exposes Prometheus text metrics. <code>POST /api/v1/simulate/request</code> records a synthetic response status when <code>DEMO_MODE=true</code>.</p></section>
   <footer>Portfolio demo only. The repository documents assumptions and limits; synthetic metrics are not production telemetry.</footer>
   <script>
     const percentage = value => (value * 100).toFixed(2) + '%';
-    Promise.all([fetch('/healthz').then(r => r.json()), fetch('/api/v1/summary').then(r => r.json()), fetch('/api/v1/incidents').then(r => r.json())]).then(([health, summary, incidents]) => {
+
+    function appendCell(row, text, className) {
+      const cell = document.createElement('td');
+      if (className) cell.className = className;
+      cell.textContent = text;
+      row.appendChild(cell);
+    }
+
+    function renderIncidents(incidents) {
+      const tbody = document.getElementById('incidents');
+      tbody.replaceChildren();
+      for (const item of incidents) {
+        const row = document.createElement('tr');
+        const idCell = document.createElement('td');
+        const code = document.createElement('code');
+        code.textContent = item.identifier;
+        idCell.appendChild(code);
+        row.appendChild(idCell);
+        appendCell(row, item.service);
+        appendCell(row, item.severity, 'sev');
+        appendCell(row, item.status, item.status === 'OPEN' ? 'open' : 'resolved');
+        appendCell(row, item.summary);
+        tbody.appendChild(row);
+      }
+    }
+
+    Promise.all([
+      fetch('/healthz').then(r => r.json()),
+      fetch('/api/v1/summary').then(r => r.json()),
+      fetch('/api/v1/incidents').then(r => r.json()),
+    ]).then(([health, summary, incidents]) => {
       document.getElementById('health').textContent = 'Service health: ' + health.status.toUpperCase();
       document.getElementById('availability').textContent = percentage(summary.availability_ratio);
       document.getElementById('target').textContent = percentage(summary.slo_target_ratio);
       document.getElementById('budget').textContent = percentage(summary.error_budget_remaining_ratio);
       document.getElementById('open-incidents').textContent = summary.open_incident_count;
-      document.getElementById('incidents').innerHTML = incidents.map(item => `<tr><td>${item.identifier}</td><td>${item.service}</td><td class="sev">${item.severity}</td><td class="${item.status === 'OPEN' ? 'open' : 'resolved'}">${item.status}</td><td>${item.summary}</td></tr>`).join('');
+      renderIncidents(incidents);
     }).catch(() => { document.getElementById('health').textContent = 'Health endpoint unavailable'; });
   </script>
 </body>

@@ -83,7 +83,7 @@ class MonitorState:
                 "# HELP service_slo_availability_ratio Availability calculated from observed response classes.",
                 "# TYPE service_slo_availability_ratio gauge",
                 f'service_slo_availability_ratio {summary["availability_ratio"]}',
-                "# HELP service_slo_error_budget_remaining_ratio Remaining monthly error-budget ratio for a 99.5 percent target.",
+                "# HELP service_slo_error_budget_remaining_ratio Remaining process-lifetime synthetic error-budget ratio for a 99.5 percent target.",
                 "# TYPE service_slo_error_budget_remaining_ratio gauge",
                 f'service_slo_error_budget_remaining_ratio {summary["error_budget_remaining_ratio"]}',
                 "# HELP service_incidents_open Count of currently open synthetic incidents.",
