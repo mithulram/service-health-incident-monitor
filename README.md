@@ -42,7 +42,10 @@ Visit [http://127.0.0.1:8090](http://127.0.0.1:8090) for the dashboard. API docu
 After deploying your own instance, verify with:
 
 ```bash
-BACKEND_URL=https://service-health-incident-monitor.onrender.com python scripts/smoke_backend.py
+BACKEND_URL=https://service-health-incident-monitor.onrender.com python3 scripts/smoke_backend.py
+BACKEND_URL=https://service-health-incident-monitor.onrender.com \
+FRONTEND_ORIGIN=https://operations-dashboard-b8v.pages.dev \
+python3 scripts/smoke_backend.py
 ```
 
 ## Endpoint contract
@@ -74,8 +77,8 @@ curl http://127.0.0.1:8090/metrics
 ## Verify
 
 ```bash
-python -m unittest discover -s tests -v
-python -m compileall -q src tests
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q src tests
 ```
 
 The test suite checks health/readiness, SLO values, Prometheus response semantics, incident data, CORS behavior, and that an injected `503` reduces error-budget headroom.
@@ -85,7 +88,10 @@ The test suite checks health/readiness, SLO values, Prometheus response semantic
 After deploying, confirm the live API responds:
 
 ```bash
-BACKEND_URL=https://your-service.onrender.com python scripts/smoke_backend.py
+BACKEND_URL=https://your-service.onrender.com python3 scripts/smoke_backend.py
+BACKEND_URL=https://your-service.onrender.com \
+FRONTEND_ORIGIN=https://your-dashboard.pages.dev \
+python3 scripts/smoke_backend.py
 ```
 
 ## Deploy for free (Render Web Service)
