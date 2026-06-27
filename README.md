@@ -2,12 +2,15 @@
 
 A runnable FastAPI service that models the operational concerns behind a cloud/platform role: health checks, Prometheus-compatible metrics, availability SLOs, error budgets, incidents, structured event logging, and a small dashboard backed by live API endpoints.
 
-> **Scope note:** This project intentionally uses synthetic in-memory service events. It demonstrates how operational signals are exposed and reasoned about; it is not an actual production monitoring platform.
+> **Scope note:** The service still exposes synthetic in-memory SLO/incident demo endpoints for portfolio compatibility. Milestone 1 adds persisted URL monitors, manual checks, and admin auth. Scheduled checks, status pages, and alerting are not implemented yet. This is early product foundation, not a full production monitoring platform.
 
 ![Operational dashboard preview](docs/screenshots/monitor-dashboard.png)
 
 ## What it demonstrates
 
+- Persisted URL monitors stored in SQLite (Postgres-compatible schema via SQLAlchemy).
+- Manual outbound HTTP checks with response-time recording and SSRF protections.
+- Admin bearer-token auth for monitor management routes.
 - FastAPI HTTP service design, typed request validation, and live API testing.
 - Separate liveness (`/healthz`) and readiness (`/readyz`) endpoints.
 - Availability SLO and **process-lifetime synthetic** error-budget calculation for a 99.5% target.
@@ -27,10 +30,40 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e '.[test]'
+alembic upgrade head
 DEMO_MODE=true uvicorn service_monitor.app:app --host 127.0.0.1 --port 8090
 ```
 
+By default the service stores monitors in `./service_monitor.db`. Override with `DATABASE_URL`.
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | SQLAlchemy URL (default `sqlite:///./service_monitor.db`) |
+| `ADMIN_API_KEY` | Bearer token required for monitor CRUD and manual checks when set |
+| `DEMO_MODE` | When `true`, allows protected routes without `ADMIN_API_KEY` for local/demo use |
+| `WEB_CORS_ORIGINS` | Comma-separated exact browser origins |
+| `CHECK_TIMEOUT_SECONDS` | Default timeout fallback (default `5`) |
+| `MAX_MONITORS` | Maximum persisted monitors (default `25`) |
+
 Visit [http://127.0.0.1:8090](http://127.0.0.1:8090) for the dashboard. API documentation is available at `/docs`.
+
+### Monitor CRUD (demo/local)
+
+With `DEMO_MODE=true`, protected routes are open locally. In non-demo mode, pass `Authorization: Bearer $ADMIN_API_KEY`.
+
+```bash
+curl -X POST http://127.0.0.1:8090/api/v1/monitors \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Example API","url":"https://example.com","method":"GET"}'
+
+curl http://127.0.0.1:8090/api/v1/monitors
+
+curl -X POST http://127.0.0.1:8090/api/v1/checks/run/1
+```
+
+Manual checks record a row in `check_results` and return status code, response time, and success/failure details.
+
+**Coming later:** background scheduler, public status pages, and email alerting.
 
 ## Live demo
 
@@ -59,6 +92,12 @@ python3 scripts/smoke_backend.py
 | `GET /api/v1/incidents` | Synthetic incident context |
 | `POST /api/v1/simulate/request` | Record a synthetic status code when `DEMO_MODE=true` (disabled otherwise) |
 | `GET /metrics` | Prometheus text-format metrics |
+| `GET /api/v1/monitors` | List persisted URL monitors (admin) |
+| `POST /api/v1/monitors` | Create monitor (admin) |
+| `GET /api/v1/monitors/{id}` | Get monitor (admin) |
+| `PATCH /api/v1/monitors/{id}` | Update monitor (admin) |
+| `DELETE /api/v1/monitors/{id}` | Delete monitor (admin) |
+| `POST /api/v1/checks/run/{id}` | Run one manual check now (admin) |
 
 ## Operational model
 
