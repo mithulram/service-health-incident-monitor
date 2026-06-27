@@ -32,6 +32,19 @@ DEMO_MODE=true uvicorn service_monitor.app:app --host 127.0.0.1 --port 8090
 
 Visit [http://127.0.0.1:8090](http://127.0.0.1:8090) for the dashboard. API documentation is available at `/docs`.
 
+## Live demo
+
+| Service | URL |
+|---|---|
+| Backend API | https://service-health-incident-monitor.onrender.com |
+| Companion dashboard | https://operations-dashboard-76xm.onrender.com |
+
+After deploying your own instance, verify with:
+
+```bash
+BACKEND_URL=https://service-health-incident-monitor.onrender.com python scripts/smoke_backend.py
+```
+
 ## Endpoint contract
 
 | Endpoint | Purpose |
