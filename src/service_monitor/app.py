@@ -13,7 +13,9 @@ from pydantic import BaseModel, Field
 
 from .api.v1.monitors import router as monitors_router
 from .config import Settings, clear_settings_cache, cors_origins_from_settings, get_settings
-from .db.engine import check_database_connection, create_all_tables, dispose_engine, init_engine
+from .db.engine import check_database_connection, create_all_tables, dispose_engine, init_engine, session_scope
+from .scheduler import MonitorScheduler
+from .services.fleet import fleet_summary
 from .state import MonitorState
 
 
@@ -31,22 +33,22 @@ def create_app(
     demo_mode: bool | None = None,
     database_url: str | None = None,
     settings: Settings | None = None,
+    scheduler_enabled: bool | None = None,
 ) -> FastAPI:
     """Build a FastAPI app bound to an isolated monitor state instance."""
     clear_settings_cache()
     if settings is not None:
-        resolved_settings = (
-            settings.model_copy(update={"demo_mode": demo_mode})
-            if demo_mode is not None
-            else settings
-        )
+        resolved_settings = settings
     else:
-        base_settings = get_settings()
-        resolved_settings = (
-            base_settings.model_copy(update={"demo_mode": demo_mode})
-            if demo_mode is not None
-            else base_settings
-        )
+        resolved_settings = get_settings()
+
+    updates: dict[str, object] = {}
+    if demo_mode is not None:
+        updates["demo_mode"] = demo_mode
+    if scheduler_enabled is not None:
+        updates["scheduler_enabled"] = scheduler_enabled
+    if updates:
+        resolved_settings = resolved_settings.model_copy(update=updates)
 
     state = monitor_state if monitor_state is not None else MonitorState()
     simulation_enabled = resolved_settings.demo_mode
@@ -58,12 +60,16 @@ def create_app(
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         application.state.settings = resolved_settings
+        scheduler = MonitorScheduler(resolved_settings)
+        application.state.monitor_scheduler = scheduler
+        scheduler.start()
         yield
+        scheduler.shutdown()
         dispose_engine()
 
     application = FastAPI(
         title="Service Health & Incident Monitor",
-        version="0.2.0",
+        version="0.3.0",
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings
@@ -91,8 +97,11 @@ def create_app(
         return {"status": "ready"}
 
     @application.get("/api/v1/summary")
-    def summary() -> dict[str, float | int]:
-        return state.summary()
+    def summary() -> dict[str, float | int | None]:
+        payload: dict[str, float | int | None] = dict(state.summary())
+        with session_scope() as session:
+            payload.update(fleet_summary(session))
+        return payload
 
     @application.get("/api/v1/slo")
     def slo() -> dict[str, float | int]:
