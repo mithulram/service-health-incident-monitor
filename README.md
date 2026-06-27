@@ -78,6 +78,7 @@ After deploying your own instance, verify with:
 BACKEND_URL=https://service-health-incident-monitor.onrender.com python3 scripts/smoke_backend.py
 BACKEND_URL=https://service-health-incident-monitor.onrender.com \
 FRONTEND_ORIGIN=https://operations-dashboard-b8v.pages.dev \
+ADMIN_API_KEY=your-render-secret \
 python3 scripts/smoke_backend.py
 ```
 
@@ -135,7 +136,18 @@ python3 scripts/smoke_backend.py
 
 ## Deploy for free (Render Web Service)
 
-> **Demo only:** This service uses synthetic in-memory data. It is not a production monitoring platform and must not receive real credentials or live traffic.
+The public Render demo serves the portfolio **synthetic SLO/incident endpoints** (`/api/v1/summary`, `/api/v1/incidents`, `/metrics`). Milestone 1 also adds persisted URL monitors behind admin auth.
+
+### Production-safe Render settings
+
+| Variable | Recommended public Render value |
+|---|---|
+| `DEMO_MODE` | `false` (disables open monitor CRUD and `/api/v1/simulate/request`) |
+| `ADMIN_API_KEY` | Strong random secret set only in Render dashboard/CLI (never commit) |
+| `WEB_CORS_ORIGINS` | Exact frontend origin, e.g. `https://operations-dashboard-b8v.pages.dev` |
+| `DATABASE_URL` | Optional. Default SQLite file is **ephemeral on Render free tier** (data lost on redeploy/restart). Acceptable for demo; use external Postgres later for durable monitors. |
+
+Local development can keep `DEMO_MODE=true` for frictionless monitor CRUD without an admin key.
 
 Recommended host: [Render](https://render.com) Free Web Service (Python native runtime).
 
@@ -144,17 +156,14 @@ Recommended host: [Render](https://render.com) Free Web Service (Python native r
 | Build command | `python -m pip install --upgrade pip && python -m pip install .` |
 | Start command | `uvicorn service_monitor.app:app --host 0.0.0.0 --port $PORT` |
 | Health check path | `/healthz` |
-| `DEMO_MODE` | `true` |
-| `WEB_CORS_ORIGINS` | Comma-separated exact frontend origins (set after frontend deploy) |
 
-A starter [`render.yaml`](render.yaml) Blueprint is included. When prompted for `WEB_CORS_ORIGINS`, enter the final frontend URL (for example `https://operations-dashboard.pages.dev`).
+A starter [`render.yaml`](render.yaml) Blueprint defaults to `DEMO_MODE=false` and prompts for secrets in the Render dashboard (`sync: false`).
 
 **Deployment order with the companion dashboard:**
 
-1. Deploy this backend first and note the `https://*.onrender.com` URL.
+1. Deploy this backend and set `ADMIN_API_KEY`, `WEB_CORS_ORIGINS`, and `DEMO_MODE=false` in Render.
 2. Deploy the [operations-dashboard](https://github.com/mithulram/operations-dashboard) frontend with `VITE_API_BASE_URL` pointing at this backend.
-3. Set `WEB_CORS_ORIGINS` to the frontend origin and redeploy this service.
-4. Run the smoke test above.
+3. Run the smoke test below. Optionally pass `ADMIN_API_KEY` to verify protected monitor routes.
 
 **Docker (optional):** The included `Dockerfile` binds to `0.0.0.0` and uses port `8090` locally or `$PORT` when set:
 
