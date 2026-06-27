@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -41,10 +41,38 @@ class Monitor(Base):
         back_populates="monitor",
         cascade="all, delete-orphan",
     )
+    monitor_state: Mapped[MonitorState | None] = relationship(
+        "MonitorState",
+        back_populates="monitor",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class MonitorState(Base):
+    __tablename__ = "monitor_states"
+
+    monitor_id: Mapped[int] = mapped_column(
+        ForeignKey("monitors.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    last_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    last_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_response_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    uptime_ratio_24h: Mapped[float | None] = mapped_column(Float, nullable=True)
+    uptime_ratio_7d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+    monitor: Mapped[Monitor] = relationship("Monitor", back_populates="monitor_state")
 
 
 class CheckResult(Base):
     __tablename__ = "check_results"
+    __table_args__ = (
+        Index("ix_check_results_monitor_id_checked_at", "monitor_id", "checked_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     monitor_id: Mapped[int] = mapped_column(ForeignKey("monitors.id", ondelete="CASCADE"), nullable=False)

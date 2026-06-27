@@ -18,6 +18,14 @@ def list_monitors(session: Session) -> list[Monitor]:
     return list(session.scalars(select(Monitor).order_by(Monitor.id)).all())
 
 
+def list_active_monitors(session: Session) -> list[Monitor]:
+    return list(
+        session.scalars(
+            select(Monitor).where(Monitor.is_paused.is_(False)).order_by(Monitor.id)
+        ).all()
+    )
+
+
 def get_monitor(session: Session, monitor_id: int) -> Monitor | None:
     return session.get(Monitor, monitor_id)
 
@@ -49,3 +57,19 @@ def create_check_result(session: Session, **fields: object) -> CheckResult:
     session.flush()
     session.refresh(result)
     return result
+
+
+def list_check_results(
+    session: Session,
+    monitor_id: int,
+    *,
+    limit: int = 50,
+) -> list[CheckResult]:
+    return list(
+        session.scalars(
+            select(CheckResult)
+            .where(CheckResult.monitor_id == monitor_id)
+            .order_by(CheckResult.checked_at.desc(), CheckResult.id.desc())
+            .limit(limit)
+        ).all()
+    )

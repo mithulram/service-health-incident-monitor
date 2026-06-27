@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     web_cors_origins: str = Field(default="", alias="WEB_CORS_ORIGINS")
     check_timeout_seconds: int = Field(default=5, alias="CHECK_TIMEOUT_SECONDS")
     max_monitors: int = Field(default=25, alias="MAX_MONITORS")
+    scheduler_enabled: bool = Field(default=False, alias="SCHEDULER_ENABLED")
+    max_concurrent_checks: int = Field(default=10, alias="MAX_CONCURRENT_CHECKS")
+    data_retention_days: int = Field(default=7, alias="DATA_RETENTION_DAYS")
 
 
 @lru_cache
