@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -11,49 +11,70 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
+from .api.v1.monitors import router as monitors_router
+from .config import Settings, clear_settings_cache, cors_origins_from_settings, get_settings
+from .db.engine import check_database_connection, create_all_tables, dispose_engine, init_engine
 from .state import MonitorState
 
 
 LOGGER = logging.getLogger("service_monitor")
 STATIC_DIR = Path(__file__).parent / "static"
-DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 
 
 class RequestSimulation(BaseModel):
     status_code: int = Field(ge=100, le=599, examples=[503])
 
 
-def demo_mode_enabled(explicit: bool | None = None) -> bool:
-    if explicit is not None:
-        return explicit
-    return os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes")
-
-
-def cors_origins_from_env() -> list[str]:
-    """Return exact browser origins allowed for cross-origin API access."""
-    raw = os.getenv("WEB_CORS_ORIGINS", "").strip()
-    if not raw:
-        return list(DEFAULT_CORS_ORIGINS)
-    return [origin.strip() for origin in raw.split(",") if origin.strip()]
-
-
 def create_app(
     monitor_state: MonitorState | None = None,
     *,
     demo_mode: bool | None = None,
+    database_url: str | None = None,
+    settings: Settings | None = None,
 ) -> FastAPI:
     """Build a FastAPI app bound to an isolated monitor state instance."""
-    state = monitor_state if monitor_state is not None else MonitorState()
-    simulation_enabled = demo_mode_enabled(demo_mode)
+    clear_settings_cache()
+    if settings is not None:
+        resolved_settings = (
+            settings.model_copy(update={"demo_mode": demo_mode})
+            if demo_mode is not None
+            else settings
+        )
+    else:
+        base_settings = get_settings()
+        resolved_settings = (
+            base_settings.model_copy(update={"demo_mode": demo_mode})
+            if demo_mode is not None
+            else base_settings
+        )
 
-    application = FastAPI(title="Service Health & Incident Monitor", version="0.1.0")
+    state = monitor_state if monitor_state is not None else MonitorState()
+    simulation_enabled = resolved_settings.demo_mode
+    db_url = database_url or resolved_settings.database_url
+
+    init_engine(db_url)
+    create_all_tables()
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        application.state.settings = resolved_settings
+        yield
+        dispose_engine()
+
+    application = FastAPI(
+        title="Service Health & Incident Monitor",
+        version="0.2.0",
+        lifespan=lifespan,
+    )
+    application.state.settings = resolved_settings
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins_from_env(),
+        allow_origins=cors_origins_from_settings(resolved_settings),
         allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
+    application.include_router(monitors_router)
 
     @application.get("/", include_in_schema=False)
     def dashboard() -> FileResponse:
@@ -65,6 +86,8 @@ def create_app(
 
     @application.get("/readyz")
     def readiness() -> dict[str, str]:
+        if not check_database_connection():
+            raise HTTPException(status_code=503, detail="Database is not ready.")
         return {"status": "ready"}
 
     @application.get("/api/v1/summary")
@@ -73,11 +96,11 @@ def create_app(
 
     @application.get("/api/v1/slo")
     def slo() -> dict[str, float | int]:
-        summary = state.summary()
+        summary_payload = state.summary()
         return {
-            "availability_ratio": summary["availability_ratio"],
-            "slo_target_ratio": summary["slo_target_ratio"],
-            "error_budget_remaining_ratio": summary["error_budget_remaining_ratio"],
+            "availability_ratio": summary_payload["availability_ratio"],
+            "slo_target_ratio": summary_payload["slo_target_ratio"],
+            "error_budget_remaining_ratio": summary_payload["error_budget_remaining_ratio"],
         }
 
     @application.get("/api/v1/incidents")
