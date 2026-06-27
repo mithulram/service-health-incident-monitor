@@ -44,6 +44,9 @@ By default the service stores monitors in `./service_monitor.db`. Override with 
 | `WEB_CORS_ORIGINS` | Comma-separated exact browser origins |
 | `CHECK_TIMEOUT_SECONDS` | Default timeout fallback (default `5`) |
 | `MAX_MONITORS` | Maximum persisted monitors (default `25`) |
+| `SCHEDULER_ENABLED` | Run automatic interval checks (default `false`) |
+| `MAX_CONCURRENT_CHECKS` | Cap concurrent outbound checks (default `10`) |
+| `DATA_RETENTION_DAYS` | Prune `check_results` older than N days (default `7`) |
 
 Visit [http://127.0.0.1:8090](http://127.0.0.1:8090) for the dashboard. API documentation is available at `/docs`.
 
@@ -61,9 +64,41 @@ curl http://127.0.0.1:8090/api/v1/monitors
 curl -X POST http://127.0.0.1:8090/api/v1/checks/run/1
 ```
 
-Manual checks record a row in `check_results` and return status code, response time, and success/failure details.
+Manual checks record a row in `check_results`, update `monitor_states`, and return status code, response time, and success/failure details.
 
-**Coming later:** background scheduler, public status pages, and email alerting.
+### Monitor state and history
+
+Each monitor exposes aggregated state on monitor API responses:
+
+- `last_check_at`, `last_status` (`up`, `down`, `paused`, `unknown`)
+- `last_status_code`, `last_response_time_ms`, `consecutive_failures`
+- `uptime_ratio_24h`, `uptime_ratio_7d`
+
+Check history (admin):
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  http://127.0.0.1:8090/api/v1/monitors/1/checks?limit=50
+```
+
+`/api/v1/summary` now also includes fleet fields (`monitors_total`, `monitors_up`, `monitors_down`, `monitors_paused`, `monitors_unknown`, `average_response_time_ms_24h`) while preserving the existing synthetic SLO/incident fields used by the portfolio dashboard.
+
+### Background scheduler (single-instance MVP)
+
+Enable automatic interval checks locally or on an always-on host:
+
+```bash
+SCHEDULER_ENABLED=true DEMO_MODE=true uvicorn service_monitor.app:app --host 127.0.0.1 --port 8090
+```
+
+Notes:
+
+- Scheduler is **single-instance** (one process). Horizontal scaling would need an external worker in a later milestone.
+- Default is `SCHEDULER_ENABLED=false` so public Render stays safe until you opt in.
+- Render free tier sleeps; scheduled checks are best for self-host/Docker or always-on deployments.
+- Old check rows are pruned after `DATA_RETENTION_DAYS` (default 7).
+
+**Coming later:** incident auto-create from consecutive failures, public status pages, and email alerting.
 
 ## Live demo
 
@@ -99,6 +134,7 @@ python3 scripts/smoke_backend.py
 | `PATCH /api/v1/monitors/{id}` | Update monitor (admin) |
 | `DELETE /api/v1/monitors/{id}` | Delete monitor (admin) |
 | `POST /api/v1/checks/run/{id}` | Run one manual check now (admin) |
+| `GET /api/v1/monitors/{id}/checks` | Paginated check history, newest first (admin) |
 
 ## Operational model
 
