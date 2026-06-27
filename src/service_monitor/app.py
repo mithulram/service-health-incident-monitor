@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,7 @@ from .state import MonitorState
 
 LOGGER = logging.getLogger("service_monitor")
 STATIC_DIR = Path(__file__).parent / "static"
+DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 
 
 class RequestSimulation(BaseModel):
@@ -27,6 +29,14 @@ def demo_mode_enabled(explicit: bool | None = None) -> bool:
     return os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes")
 
 
+def cors_origins_from_env() -> list[str]:
+    """Return exact browser origins allowed for cross-origin API access."""
+    raw = os.getenv("WEB_CORS_ORIGINS", "").strip()
+    if not raw:
+        return list(DEFAULT_CORS_ORIGINS)
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 def create_app(
     monitor_state: MonitorState | None = None,
     *,
@@ -37,6 +47,13 @@ def create_app(
     simulation_enabled = demo_mode_enabled(demo_mode)
 
     application = FastAPI(title="Service Health & Incident Monitor", version="0.1.0")
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins_from_env(),
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
     @application.get("/", include_in_schema=False)
     def dashboard() -> FileResponse:

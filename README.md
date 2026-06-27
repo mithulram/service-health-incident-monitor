@@ -65,7 +65,47 @@ python -m unittest discover -s tests -v
 python -m compileall -q src tests
 ```
 
-The test suite checks health/readiness, SLO values, Prometheus response semantics, incident data, and that an injected `503` reduces error-budget headroom.
+The test suite checks health/readiness, SLO values, Prometheus response semantics, incident data, CORS behavior, and that an injected `503` reduces error-budget headroom.
+
+### Deployed backend smoke test
+
+After deploying, confirm the live API responds:
+
+```bash
+BACKEND_URL=https://your-service.onrender.com python scripts/smoke_backend.py
+```
+
+## Deploy for free (Render Web Service)
+
+> **Demo only:** This service uses synthetic in-memory data. It is not a production monitoring platform and must not receive real credentials or live traffic.
+
+Recommended host: [Render](https://render.com) Free Web Service (Python native runtime).
+
+| Setting | Value |
+|---|---|
+| Build command | `python -m pip install --upgrade pip && python -m pip install .` |
+| Start command | `uvicorn service_monitor.app:app --host 0.0.0.0 --port $PORT` |
+| Health check path | `/healthz` |
+| `DEMO_MODE` | `true` |
+| `WEB_CORS_ORIGINS` | Comma-separated exact frontend origins (set after frontend deploy) |
+
+A starter [`render.yaml`](render.yaml) Blueprint is included. When prompted for `WEB_CORS_ORIGINS`, enter the final frontend URL (for example `https://operations-dashboard.pages.dev`).
+
+**Deployment order with the companion dashboard:**
+
+1. Deploy this backend first and note the `https://*.onrender.com` URL.
+2. Deploy the [operations-dashboard](https://github.com/mithulram/operations-dashboard) frontend with `VITE_API_BASE_URL` pointing at this backend.
+3. Set `WEB_CORS_ORIGINS` to the frontend origin and redeploy this service.
+4. Run the smoke test above.
+
+**Docker (optional):** The included `Dockerfile` binds to `0.0.0.0` and uses port `8090` locally or `$PORT` when set:
+
+```bash
+docker build -t service-monitor .
+docker run --rm -p 8090:8090 -e DEMO_MODE=true service-monitor
+```
+
+**CORS:** Cross-origin browser access is limited to origins listed in `WEB_CORS_ORIGINS`. When unset, local dev defaults apply: `http://localhost:5173` and `http://127.0.0.1:5173`. Wildcard `*` is not used.
 
 ## Design boundaries
 

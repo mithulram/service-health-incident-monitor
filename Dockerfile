@@ -7,4 +7,4 @@ COPY src ./src
 RUN python -m pip install --no-cache-dir .
 
 EXPOSE 8090
-CMD ["uvicorn", "service_monitor.app:app", "--host", "0.0.0.0", "--port", "8090"]
+CMD ["sh", "-c", "uvicorn service_monitor.app:app --host 0.0.0.0 --port ${PORT:-8090}"]

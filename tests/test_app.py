@@ -1,5 +1,7 @@
+import os
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -82,3 +84,56 @@ class ServiceMonitorTests(unittest.TestCase):
         self.assertNotIn(".innerHTML", html)
         self.assertIn("createElement", html)
         self.assertIn("textContent", html)
+
+    def test_cors_allows_local_dev_origin(self):
+        client = TestClient(create_app(MonitorState()))
+        response = client.options(
+            "/api/v1/summary",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"),
+            "http://localhost:5173",
+        )
+
+    def test_cors_rejects_unknown_origin(self):
+        client = TestClient(create_app(MonitorState()))
+        response = client.options(
+            "/api/v1/summary",
+            headers={
+                "Origin": "https://evil.example",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        self.assertNotIn("access-control-allow-origin", response.headers)
+
+    def test_cors_uses_web_cors_origins_env_var(self):
+        with mock.patch.dict(
+            os.environ,
+            {"WEB_CORS_ORIGINS": "https://dashboard.example.com,https://www.example.com"},
+        ):
+            client = TestClient(create_app(MonitorState()))
+            response = client.options(
+                "/api/v1/summary",
+                headers={
+                    "Origin": "https://dashboard.example.com",
+                    "Access-Control-Request-Method": "GET",
+                },
+            )
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"),
+            "https://dashboard.example.com",
+        )
+        self.assertNotEqual(
+            client.options(
+                "/api/v1/summary",
+                headers={
+                    "Origin": "http://localhost:5173",
+                    "Access-Control-Request-Method": "GET",
+                },
+            ).headers.get("access-control-allow-origin"),
+            "http://localhost:5173",
+        )
