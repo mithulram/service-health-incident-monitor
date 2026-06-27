@@ -12,3 +12,4 @@ dist/
 !.env.example
 *.pem
 *.key
+service_monitor.db
