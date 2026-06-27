@@ -37,7 +37,7 @@ Visit [http://127.0.0.1:8090](http://127.0.0.1:8090) for the dashboard. API docu
 | Service | URL |
 |---|---|
 | Backend API | https://service-health-incident-monitor.onrender.com |
-| Companion dashboard | https://operations-dashboard-76xm.onrender.com |
+| Companion dashboard | https://operations-dashboard-b8v.pages.dev |
 
 After deploying your own instance, verify with:
 
