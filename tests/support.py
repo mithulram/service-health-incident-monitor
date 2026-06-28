@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import unittest
 
 DEFAULT_TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -18,24 +19,16 @@ def uses_postgres() -> bool:
 
 
 def reset_test_database() -> None:
-    """Clear persisted rows between tests when running against shared Postgres."""
+    """Reset persisted rows between tests when running against shared Postgres."""
     if not uses_postgres():
         return
 
-    from sqlalchemy import text
+    from service_monitor.db.engine import dispose_engine
 
-    from service_monitor.db.engine import dispose_engine, get_engine, init_engine
-    from service_monitor.db.models import Base
-
-    url = test_database_url()
     dispose_engine()
-    init_engine(url)
-    engine = get_engine()
-    table_names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
-    if not table_names:
-        return
-    with engine.begin() as connection:
-        connection.execute(text(f"TRUNCATE {table_names} RESTART IDENTITY CASCADE"))
+    env = os.environ.copy()
+    subprocess.check_call(["alembic", "downgrade", "base"], env=env)
+    subprocess.check_call(["alembic", "upgrade", "head"], env=env)
 
 
 def install_postgres_test_isolation() -> None:
