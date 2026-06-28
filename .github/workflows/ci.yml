@@ -108,10 +108,6 @@ jobs:
               test_smoke_self_host.py|test_postgres_migrations.py) continue ;;
             esac
             echo "Running ${base_name} against Postgres"
-            export DATABASE_URL="postgresql+psycopg://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}"
-            alembic downgrade base
-            alembic upgrade head
-            unset DATABASE_URL
             python -m unittest discover -s tests -p "${base_name}" -v
           done
 
