@@ -7,7 +7,15 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import CheckResult, Monitor, StatusPage, StatusPageComponent, StatusPageComponentMonitor
+from .models import (
+    AlertEvent,
+    AlertSettings,
+    CheckResult,
+    Monitor,
+    StatusPage,
+    StatusPageComponent,
+    StatusPageComponentMonitor,
+)
 
 
 def count_monitors(session: Session) -> int:
@@ -179,5 +187,45 @@ def list_component_monitors(session: Session, component_id: int) -> list[Monitor
             .join(StatusPageComponentMonitor, StatusPageComponentMonitor.monitor_id == Monitor.id)
             .where(StatusPageComponentMonitor.component_id == component_id)
             .order_by(Monitor.id)
+        ).all()
+    )
+
+
+def get_alert_settings(session: Session) -> AlertSettings | None:
+    return session.scalar(select(AlertSettings).order_by(AlertSettings.id).limit(1))
+
+
+def ensure_alert_settings(session: Session) -> AlertSettings:
+    settings = get_alert_settings(session)
+    if settings is not None:
+        return settings
+    settings = AlertSettings()
+    session.add(settings)
+    session.flush()
+    session.refresh(settings)
+    return settings
+
+
+def update_alert_settings(session: Session, settings: AlertSettings, **fields: object) -> AlertSettings:
+    for key, value in fields.items():
+        setattr(settings, key, value)
+    settings.updated_at = datetime.now(UTC)
+    session.flush()
+    session.refresh(settings)
+    return settings
+
+
+def create_alert_event(session: Session, **fields: object) -> AlertEvent:
+    event = AlertEvent(**fields)
+    session.add(event)
+    session.flush()
+    session.refresh(event)
+    return event
+
+
+def list_alert_events(session: Session, *, limit: int = 50) -> list[AlertEvent]:
+    return list(
+        session.scalars(
+            select(AlertEvent).order_by(AlertEvent.created_at.desc(), AlertEvent.id.desc()).limit(limit)
         ).all()
     )

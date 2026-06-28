@@ -63,6 +63,8 @@ class MonitorState(Base):
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     uptime_ratio_24h: Mapped[float | None] = mapped_column(Float, nullable=True)
     uptime_ratio_7d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    alert_open: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    alert_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
     monitor: Mapped[Monitor] = relationship("Monitor", back_populates="monitor_state")
@@ -154,3 +156,42 @@ class StatusPageComponentMonitor(Base):
         back_populates="monitor_links",
     )
     monitor: Mapped[Monitor] = relationship("Monitor")
+
+
+class AlertSettings(Base):
+    __tablename__ = "alert_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    smtp_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    smtp_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    smtp_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    smtp_password_encrypted_or_secret_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    smtp_from: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    alert_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    send_resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
+class AlertEvent(Base):
+    __tablename__ = "alert_events"
+    __table_args__ = (Index("ix_alert_events_created_at", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    monitor_id: Mapped[int | None] = mapped_column(ForeignKey("monitors.id", ondelete="SET NULL"), nullable=True)
+    check_result_id: Mapped[int | None] = mapped_column(
+        ForeignKey("check_results.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    event_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    recipient: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)

@@ -29,6 +29,15 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = Field(default=False, alias="SCHEDULER_ENABLED")
     max_concurrent_checks: int = Field(default=10, alias="MAX_CONCURRENT_CHECKS")
     data_retention_days: int = Field(default=7, alias="DATA_RETENTION_DAYS")
+    alerts_enabled: bool = Field(default=False, alias="ALERTS_ENABLED")
+    alert_send_resolved: bool = Field(default=True, alias="ALERT_SEND_RESOLVED")
+    alert_email_to: str | None = Field(default=None, alias="ALERT_EMAIL_TO")
+    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
+    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_from: str | None = Field(default=None, alias="SMTP_FROM")
+    frontend_public_url: str | None = Field(default=None, alias="FRONTEND_PUBLIC_URL")
 
 
 @lru_cache
