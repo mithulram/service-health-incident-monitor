@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..db import repositories as repo
 from ..db.models import Monitor, StatusPage, StatusPageComponent
+from .incidents import list_recent_public_incidents
 from .state import STATUS_DOWN, STATUS_PAUSED, STATUS_UNKNOWN, STATUS_UP
 
 PublicStatus = Literal["operational", "degraded", "outage", "unknown"]
@@ -134,7 +135,7 @@ def build_public_status_payload(session: Session, page: StatusPage) -> dict[str,
         "overall_status": aggregate_overall_status(component_statuses),
         "updated_at": latest_update,
         "components": components_payload,
-        "recent_incidents": [],
+        "recent_incidents": list_recent_public_incidents(session, limit=5),
     }
 
 

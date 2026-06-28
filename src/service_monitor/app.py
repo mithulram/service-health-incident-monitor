@@ -12,14 +12,17 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from .api.v1.alert_settings import router as alert_settings_router
+from .api.v1.incidents import router as incidents_router
 from .api.public.status import router as public_status_router
 from .api.v1.monitors import router as monitors_router
 from .api.v1.status_page import router as status_page_router
 from .config import Settings, clear_settings_cache, cors_origins_from_settings, get_settings
+from .db import repositories as repo
 from .db.engine import check_database_connection, create_all_tables, dispose_engine, init_engine, session_scope
 from .scheduler import MonitorScheduler
 from .services.alerts import ensure_default_alert_settings
 from .services.fleet import fleet_summary
+from .services.incidents import get_open_incident_count, list_incidents_for_api
 from .services.status_pages import ensure_default_status_page
 from .state import MonitorState
 
@@ -77,7 +80,7 @@ def create_app(
 
     application = FastAPI(
         title="Service Health & Incident Monitor",
-        version="0.5.0",
+        version="0.6.0",
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings
@@ -91,6 +94,7 @@ def create_app(
     application.include_router(monitors_router)
     application.include_router(status_page_router)
     application.include_router(alert_settings_router)
+    application.include_router(incidents_router)
     application.include_router(public_status_router)
 
     @application.get("/", include_in_schema=False)
@@ -112,11 +116,14 @@ def create_app(
         payload: dict[str, float | int | None] = dict(state.summary())
         with session_scope() as session:
             payload.update(fleet_summary(session))
+            open_count = get_open_incident_count(session)
+            if open_count is not None:
+                payload["open_incident_count"] = open_count
         return payload
 
     @application.get("/api/v1/slo")
     def slo() -> dict[str, float | int]:
-        summary_payload = state.summary()
+        summary_payload = summary()
         return {
             "availability_ratio": summary_payload["availability_ratio"],
             "slo_target_ratio": summary_payload["slo_target_ratio"],
@@ -124,7 +131,10 @@ def create_app(
         }
 
     @application.get("/api/v1/incidents")
-    def incidents() -> list[dict[str, str]]:
+    def incidents() -> list[dict[str, object]]:
+        with session_scope() as session:
+            if repo.count_incidents(session) > 0:
+                return list_incidents_for_api(session)
         return state.incidents()
 
     @application.post("/api/v1/simulate/request")
