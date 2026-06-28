@@ -39,7 +39,7 @@ def make_settings(**overrides: object) -> Settings:
 
 def make_client(**settings_overrides: object) -> TestClient:
     settings = make_settings(**settings_overrides)
-    return TestClient(create_app(MonitorState(), settings=settings))
+    return TestClient(create_app(MonitorState(), settings=settings, database_url=settings.database_url))
 
 
 class AutoIncidentTests(unittest.TestCase):

@@ -35,8 +35,9 @@ class PostgresMigrationTests(unittest.TestCase):
         self.getaddrinfo_patcher.stop()
 
     def make_client(self, *, demo_mode: bool = True) -> TestClient:
-        settings = Settings(demo_mode=demo_mode, database_url=test_database_url())
-        return TestClient(create_app(MonitorState(), settings=settings))
+        url = test_database_url()
+        settings = Settings(demo_mode=demo_mode, database_url=url)
+        return TestClient(create_app(MonitorState(), settings=settings, database_url=url))
 
     def test_readyz_reports_database_ready(self) -> None:
         client = self.make_client()

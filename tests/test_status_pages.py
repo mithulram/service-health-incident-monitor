@@ -34,7 +34,7 @@ def make_client(
         admin_api_key=admin_api_key,
         database_url=database_url,
     )
-    return TestClient(create_app(MonitorState(), settings=settings))
+    return TestClient(create_app(MonitorState(), settings=settings, database_url=database_url))
 
 
 class StatusPageApiTests(unittest.TestCase):

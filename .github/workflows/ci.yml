@@ -94,11 +94,11 @@ jobs:
           alembic upgrade head
       - name: Run Postgres integration tests
         run: |
-          export DATABASE_URL="postgresql+psycopg://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+          unset DATABASE_URL
           python -m unittest discover -s tests -p 'test_postgres_migrations.py' -v
       - name: Run unit tests against Postgres
         run: |
-          export DATABASE_URL="postgresql+psycopg://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+          unset DATABASE_URL
           shopt -s nullglob
           for test_file in tests/test_*.py; do
             base_name="$(basename "${test_file}")"
