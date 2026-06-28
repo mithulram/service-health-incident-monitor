@@ -5,12 +5,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from .models import (
     AlertEvent,
     AlertSettings,
     CheckResult,
+    Incident,
+    IncidentUpdate,
     Monitor,
     StatusPage,
     StatusPageComponent,
@@ -228,4 +230,102 @@ def list_alert_events(session: Session, *, limit: int = 50) -> list[AlertEvent]:
         session.scalars(
             select(AlertEvent).order_by(AlertEvent.created_at.desc(), AlertEvent.id.desc()).limit(limit)
         ).all()
+    )
+
+
+INCIDENT_OPEN_STATUSES = ("open", "acknowledged")
+
+
+def count_incidents(session: Session) -> int:
+    return session.scalar(select(func.count()).select_from(Incident)) or 0
+
+
+def count_open_incidents(session: Session) -> int:
+    return (
+        session.scalar(
+            select(func.count())
+            .select_from(Incident)
+            .where(Incident.status.in_(INCIDENT_OPEN_STATUSES))
+        )
+        or 0
+    )
+
+
+def list_incidents(session: Session, *, limit: int = 100) -> list[Incident]:
+    return list(
+        session.scalars(
+            select(Incident)
+            .options(joinedload(Incident.monitor), joinedload(Incident.updates))
+            .order_by(Incident.started_at.desc(), Incident.id.desc())
+            .limit(limit)
+        )
+        .unique()
+        .all()
+    )
+
+
+def list_recent_incidents(session: Session, *, limit: int = 5) -> list[Incident]:
+    return list(
+        session.scalars(
+            select(Incident)
+            .options(joinedload(Incident.updates))
+            .order_by(Incident.started_at.desc(), Incident.id.desc())
+            .limit(limit)
+        )
+        .unique()
+        .all()
+    )
+
+
+def get_incident(session: Session, incident_id: int) -> Incident | None:
+    return session.scalars(
+        select(Incident)
+        .options(joinedload(Incident.monitor), joinedload(Incident.updates))
+        .where(Incident.id == incident_id)
+    ).unique().first()
+
+
+def create_incident(session: Session, **fields: object) -> Incident:
+    incident = Incident(**fields)
+    session.add(incident)
+    session.flush()
+    session.refresh(incident)
+    return incident
+
+
+def update_incident(session: Session, incident: Incident, **fields: object) -> Incident:
+    for key, value in fields.items():
+        setattr(incident, key, value)
+    incident.updated_at = datetime.now(UTC)
+    session.flush()
+    session.refresh(incident)
+    return incident
+
+
+def create_incident_update(session: Session, **fields: object) -> IncidentUpdate:
+    update = IncidentUpdate(**fields)
+    session.add(update)
+    session.flush()
+    session.refresh(update)
+    return update
+
+
+def list_incident_updates(session: Session, incident_id: int) -> list[IncidentUpdate]:
+    return list(
+        session.scalars(
+            select(IncidentUpdate)
+            .where(IncidentUpdate.incident_id == incident_id)
+            .order_by(IncidentUpdate.created_at.asc(), IncidentUpdate.id.asc())
+        ).all()
+    )
+
+
+def count_incident_updates(session: Session, incident_id: int) -> int:
+    return (
+        session.scalar(
+            select(func.count())
+            .select_from(IncidentUpdate)
+            .where(IncidentUpdate.incident_id == incident_id)
+        )
+        or 0
     )
