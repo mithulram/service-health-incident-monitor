@@ -136,7 +136,18 @@ def record_check_result(
     prune_old_check_results(session, monitor.id, settings.data_retention_days)
 
     from .alerts import process_monitor_alert_transition
+    from .incidents import process_monitor_incident_transition
+    from .monitor_transitions import evaluate_monitor_transition
 
+    transition = evaluate_monitor_transition(previous_status, state, monitor)
+    process_monitor_incident_transition(
+        session,
+        monitor,
+        state,
+        outcome,
+        check_result,
+        transition,
+    )
     process_monitor_alert_transition(
         session,
         monitor,
@@ -144,6 +155,6 @@ def record_check_result(
         outcome,
         check_result,
         settings,
-        previous_status=previous_status,
+        transition=transition,
     )
     return check_result

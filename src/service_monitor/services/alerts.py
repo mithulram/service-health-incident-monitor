@@ -16,7 +16,7 @@ from ..config import Settings
 from ..db import repositories as repo
 from ..db.models import AlertSettings, CheckResult, Monitor, MonitorState
 from .checks import CheckOutcome
-from .state import STATUS_DOWN, STATUS_PAUSED, STATUS_UNKNOWN, STATUS_UP
+from .monitor_transitions import MonitorTransition
 
 LOGGER = logging.getLogger("service_monitor.alerts")
 
@@ -251,12 +251,6 @@ def send_test_alert(session: Session, settings: Settings, alert_settings: AlertS
     return event
 
 
-def _normalize_status(status: str | None) -> str:
-    if status in {STATUS_UP, STATUS_DOWN, STATUS_PAUSED, STATUS_UNKNOWN}:
-        return status
-    return STATUS_UNKNOWN
-
-
 def process_monitor_alert_transition(
     session: Session,
     monitor: Monitor,
@@ -265,17 +259,14 @@ def process_monitor_alert_transition(
     check_result: CheckResult,
     settings: Settings,
     *,
-    previous_status: str | None,
+    transition: MonitorTransition,
 ) -> None:
     alert_settings = ensure_default_alert_settings(session)
     config = build_effective_alert_config(settings, alert_settings)
     if not config.ready:
         return
 
-    old_status = _normalize_status(previous_status)
-    new_status = _normalize_status(monitor_state.last_status)
-
-    if new_status == STATUS_DOWN and old_status != STATUS_DOWN and not monitor_state.alert_open:
+    if transition.went_down and not monitor_state.alert_open:
         send_alert_email(
             session,
             settings,
@@ -290,8 +281,7 @@ def process_monitor_alert_transition(
         session.flush()
 
     elif (
-        new_status == STATUS_UP
-        and old_status == STATUS_DOWN
+        transition.recovered
         and monitor_state.alert_open
         and config.send_resolved
     ):
