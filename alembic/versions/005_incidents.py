@@ -50,23 +50,21 @@ def upgrade() -> None:
         unique=False,
     )
 
-    op.add_column(
-        "monitor_states",
-        sa.Column("open_incident_id", sa.Integer(), nullable=True),
-    )
-    op.create_foreign_key(
-        "fk_monitor_states_open_incident_id",
-        "monitor_states",
-        "incidents",
-        ["open_incident_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
+    with op.batch_alter_table("monitor_states") as batch_op:
+        batch_op.add_column(sa.Column("open_incident_id", sa.Integer(), nullable=True))
+        batch_op.create_foreign_key(
+            "fk_monitor_states_open_incident_id",
+            "incidents",
+            ["open_incident_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_monitor_states_open_incident_id", "monitor_states", type_="foreignkey")
-    op.drop_column("monitor_states", "open_incident_id")
+    with op.batch_alter_table("monitor_states") as batch_op:
+        batch_op.drop_constraint("fk_monitor_states_open_incident_id", type_="foreignkey")
+        batch_op.drop_column("open_incident_id")
     op.drop_index("ix_incident_updates_incident_id_created_at", table_name="incident_updates")
     op.drop_table("incident_updates")
     op.drop_index("ix_incidents_status", table_name="incidents")
