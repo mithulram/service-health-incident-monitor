@@ -59,7 +59,18 @@ jobs:
       - name: Run Alembic migrations against Postgres
         run: alembic upgrade head
       - name: Run tests against Postgres
-        run: python -m unittest discover -s tests -v
+        run: |
+          shopt -s nullglob
+          for test_file in tests/test_*.py; do
+            base_name="$(basename "${test_file}")"
+            case "${base_name}" in
+              test_smoke_self_host.py) continue ;;
+            esac
+            echo "Running ${base_name} against Postgres"
+            alembic downgrade base
+            alembic upgrade head
+            python -m unittest discover -s tests -p "${base_name}" -v
+          done
 
   docker-smoke:
     runs-on: ubuntu-latest
