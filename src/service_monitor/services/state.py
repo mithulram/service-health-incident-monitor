@@ -119,6 +119,9 @@ def record_check_result(
     outcome: CheckOutcome,
     settings: Settings,
 ) -> CheckResult:
+    state = get_or_create_monitor_state(session, monitor.id)
+    previous_status = state.last_status
+
     check_result = CheckResult(
         monitor_id=monitor.id,
         checked_at=_ensure_utc(outcome.checked_at),
@@ -131,4 +134,16 @@ def record_check_result(
     session.flush()
     update_monitor_state_from_outcome(session, monitor, outcome)
     prune_old_check_results(session, monitor.id, settings.data_retention_days)
+
+    from .alerts import process_monitor_alert_transition
+
+    process_monitor_alert_transition(
+        session,
+        monitor,
+        state,
+        outcome,
+        check_result,
+        settings,
+        previous_status=previous_status,
+    )
     return check_result
