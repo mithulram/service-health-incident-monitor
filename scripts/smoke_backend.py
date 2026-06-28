@@ -193,6 +193,27 @@ def check_protected_routes(base_url: str, admin_api_key: str) -> bool:
     return True
 
 
+def check_alert_settings_routes(base_url: str, admin_api_key: str) -> bool:
+    alerts_url = f"{base_url}/api/v1/settings/alerts"
+
+    deny_status, _ = request_with_retry(
+        "Protected alert settings without auth",
+        alerts_url,
+        expected_status=PROTECTED_DENY_STATUSES,
+    )
+    print(f"OK   /api/v1/settings/alerts without auth: HTTP {deny_status} (protected)")
+
+    auth_headers = {"Authorization": f"Bearer {admin_api_key}"}
+    status, payload = request_with_retry(
+        "Protected alert settings with auth",
+        alerts_url,
+        headers=auth_headers,
+        expected_status=200,
+    )
+    print(f"OK   /api/v1/settings/alerts with auth: HTTP {status} ({len(payload)} bytes)")
+    return True
+
+
 def main() -> int:
     backend_url = os.environ.get("BACKEND_URL", "").strip().rstrip("/")
     if not backend_url:
@@ -213,6 +234,7 @@ def main() -> int:
         if admin_api_key:
             print("Checking protected monitor routes with ADMIN_API_KEY")
             results.append(check_protected_routes(backend_url, admin_api_key))
+            results.append(check_alert_settings_routes(backend_url, admin_api_key))
     except RuntimeError as exc:
         print(f"FAIL {exc}", file=sys.stderr)
         print("Backend smoke test failed.", file=sys.stderr)
