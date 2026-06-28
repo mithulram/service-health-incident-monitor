@@ -83,3 +83,74 @@ class CheckResult(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     monitor: Mapped[Monitor] = relationship("Monitor", back_populates="check_results")
+
+
+class StatusPage(Base):
+    __tablename__ = "status_pages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_response_times: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+    components: Mapped[list[StatusPageComponent]] = relationship(
+        "StatusPageComponent",
+        back_populates="status_page",
+        cascade="all, delete-orphan",
+        order_by="StatusPageComponent.sort_order",
+    )
+
+
+class StatusPageComponent(Base):
+    __tablename__ = "status_page_components"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    status_page_id: Mapped[int] = mapped_column(
+        ForeignKey("status_pages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    status_page: Mapped[StatusPage] = relationship("StatusPage", back_populates="components")
+    monitor_links: Mapped[list[StatusPageComponentMonitor]] = relationship(
+        "StatusPageComponentMonitor",
+        back_populates="component",
+        cascade="all, delete-orphan",
+    )
+
+
+class StatusPageComponentMonitor(Base):
+    __tablename__ = "status_page_component_monitors"
+    __table_args__ = (
+        Index(
+            "uq_status_page_component_monitors_component_monitor",
+            "component_id",
+            "monitor_id",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    component_id: Mapped[int] = mapped_column(
+        ForeignKey("status_page_components.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    monitor_id: Mapped[int] = mapped_column(
+        ForeignKey("monitors.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    component: Mapped[StatusPageComponent] = relationship(
+        "StatusPageComponent",
+        back_populates="monitor_links",
+    )
+    monitor: Mapped[Monitor] = relationship("Monitor")

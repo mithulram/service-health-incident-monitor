@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import CheckResult, Monitor
+from .models import CheckResult, Monitor, StatusPage, StatusPageComponent, StatusPageComponentMonitor
 
 
 def count_monitors(session: Session) -> int:
@@ -71,5 +71,113 @@ def list_check_results(
             .where(CheckResult.monitor_id == monitor_id)
             .order_by(CheckResult.checked_at.desc(), CheckResult.id.desc())
             .limit(limit)
+        ).all()
+    )
+
+
+DEFAULT_STATUS_PAGE_SLUG = "default"
+DEFAULT_STATUS_PAGE_TITLE = "Service Status"
+DEFAULT_COMPONENT_NAME = "Core services"
+
+
+def get_status_page_by_slug(session: Session, slug: str) -> StatusPage | None:
+    return session.scalar(select(StatusPage).where(StatusPage.slug == slug))
+
+
+def get_default_status_page(session: Session) -> StatusPage | None:
+    return get_status_page_by_slug(session, DEFAULT_STATUS_PAGE_SLUG)
+
+
+def create_status_page(session: Session, **fields: object) -> StatusPage:
+    page = StatusPage(**fields)
+    session.add(page)
+    session.flush()
+    session.refresh(page)
+    return page
+
+
+def update_status_page(session: Session, page: StatusPage, **fields: object) -> StatusPage:
+    for key, value in fields.items():
+        setattr(page, key, value)
+    page.updated_at = datetime.now(UTC)
+    session.flush()
+    session.refresh(page)
+    return page
+
+
+def list_status_page_components(session: Session, status_page_id: int) -> list[StatusPageComponent]:
+    return list(
+        session.scalars(
+            select(StatusPageComponent)
+            .where(StatusPageComponent.status_page_id == status_page_id)
+            .order_by(StatusPageComponent.sort_order, StatusPageComponent.id)
+        ).all()
+    )
+
+
+def get_status_page_component(session: Session, component_id: int) -> StatusPageComponent | None:
+    return session.get(StatusPageComponent, component_id)
+
+
+def create_status_page_component(session: Session, **fields: object) -> StatusPageComponent:
+    component = StatusPageComponent(**fields)
+    session.add(component)
+    session.flush()
+    session.refresh(component)
+    return component
+
+
+def update_status_page_component(
+    session: Session,
+    component: StatusPageComponent,
+    **fields: object,
+) -> StatusPageComponent:
+    for key, value in fields.items():
+        setattr(component, key, value)
+    session.flush()
+    session.refresh(component)
+    return component
+
+
+def delete_status_page_component(session: Session, component: StatusPageComponent) -> None:
+    session.delete(component)
+
+
+def get_component_monitor_link(
+    session: Session,
+    component_id: int,
+    monitor_id: int,
+) -> StatusPageComponentMonitor | None:
+    return session.scalar(
+        select(StatusPageComponentMonitor).where(
+            StatusPageComponentMonitor.component_id == component_id,
+            StatusPageComponentMonitor.monitor_id == monitor_id,
+        )
+    )
+
+
+def add_monitor_to_component(
+    session: Session,
+    component_id: int,
+    monitor_id: int,
+) -> StatusPageComponentMonitor:
+    link = StatusPageComponentMonitor(component_id=component_id, monitor_id=monitor_id)
+    session.add(link)
+    session.flush()
+    session.refresh(link)
+    return link
+
+
+def remove_monitor_from_component(session: Session, link: StatusPageComponentMonitor) -> None:
+    session.delete(link)
+
+
+def list_component_monitors(session: Session, component_id: int) -> list[Monitor]:
+    return list(
+        session.scalars(
+            select(Monitor)
+            .join(StatusPageComponentMonitor, StatusPageComponentMonitor.monitor_id == Monitor.id)
+            .where(StatusPageComponentMonitor.component_id == component_id)
+            .order_by(Monitor.id)
         ).all()
     )
