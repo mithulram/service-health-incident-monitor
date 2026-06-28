@@ -47,13 +47,13 @@ def install_postgres_test_isolation() -> None:
     if not uses_postgres() or getattr(unittest.TestCase, "_postgres_isolation_installed", False):
         return
 
-    original_setUp = unittest.TestCase.setUp
+    original_run = unittest.TestCase.run
 
-    def setUp(self) -> None:
+    def run(self, result=None):
         reset_test_database()
-        original_setUp(self)
+        return original_run(self, result)
 
-    unittest.TestCase.setUp = setUp
+    unittest.TestCase.run = run  # type: ignore[method-assign]
     unittest.TestCase._postgres_isolation_installed = True  # type: ignore[attr-defined]
 
 
