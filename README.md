@@ -1,331 +1,219 @@
 # Service Health & Incident Monitor
 
-A runnable FastAPI service that models the operational concerns behind a cloud/platform role: health checks, Prometheus-compatible metrics, availability SLOs, error budgets, incidents, structured event logging, and a small dashboard backed by live API endpoints.
+A **free-first, self-hostable monitoring API** for solo developers, open-source maintainers, and small teams. Check HTTP endpoints on a schedule, open incidents automatically, send optional email alerts, and expose a public JSON status page for your users.
 
-> **Scope note:** The service still exposes synthetic in-memory SLO/incident demo endpoints for portfolio compatibility when no real incidents exist. Milestone 1–3 add persisted URL monitors, manual/scheduled checks, fleet summary, and admin auth. Milestone 4 adds a public JSON status page API and admin status-page management. Milestone 5 adds email alerts on monitor down/recovery (SMTP env only). Milestone 6 adds automatic incidents from monitor transitions with a timeline API. Public HTML rendering lives in the companion operations dashboard.
-
-![Operational dashboard preview](docs/screenshots/monitor-dashboard.png)
-
-## What it demonstrates
-
-- Persisted URL monitors stored in SQLite (Postgres-compatible schema via SQLAlchemy).
-- Manual outbound HTTP checks with response-time recording and SSRF protections.
-- Admin bearer-token auth for monitor management routes.
-- FastAPI HTTP service design, typed request validation, and live API testing.
-- Separate liveness (`/healthz`) and readiness (`/readyz`) endpoints.
-- Availability SLO and **process-lifetime synthetic** error-budget calculation for a 99.5% target.
-- Prometheus 0.0.4 text-format metrics at `/metrics`, with HELP/TYPE metadata and a valid text content type.
-- Incident context alongside quantitative signals, including open and resolved incidents.
-- A synthetic fault-injection endpoint used to prove that service errors consume the calculated error budget.
-- A browser dashboard that fetches live service data, not a static mock-up.
-
-## Run locally
-
-Requirements: Python 3.11+.
-
-```bash
-git clone https://github.com/mithulram/service-health-incident-monitor.git
-cd service-health-incident-monitor
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[test]'
-alembic upgrade head
-DEMO_MODE=true uvicorn service_monitor.app:app --host 127.0.0.1 --port 8090
-```
-
-By default the service stores monitors in `./service_monitor.db`. Override with `DATABASE_URL`.
-
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | SQLAlchemy URL (default `sqlite:///./service_monitor.db`) |
-| `ADMIN_API_KEY` | Bearer token required for monitor CRUD and manual checks when set |
-| `DEMO_MODE` | When `true`, allows protected routes without `ADMIN_API_KEY` for local/demo use |
-| `WEB_CORS_ORIGINS` | Comma-separated exact browser origins |
-| `CHECK_TIMEOUT_SECONDS` | Default timeout fallback (default `5`) |
-| `MAX_MONITORS` | Maximum persisted monitors (default `25`) |
-| `SCHEDULER_ENABLED` | Run automatic interval checks (default `false`) |
-| `MAX_CONCURRENT_CHECKS` | Cap concurrent outbound checks (default `10`) |
-| `DATA_RETENTION_DAYS` | Prune `check_results` older than N days (default `7`) |
-| `ALERTS_ENABLED` | Master env switch for email alerts (default `false`) |
-| `ALERT_SEND_RESOLVED` | Send recovery emails when a monitor returns to `up` (default `true`) |
-| `SMTP_HOST` | SMTP server hostname (Render env only; never commit) |
-| `SMTP_PORT` | SMTP port (default `587`) |
-| `SMTP_USERNAME` | SMTP auth username (optional for some providers) |
-| `SMTP_PASSWORD` | SMTP auth password (**env only**, never stored in DB or returned by API) |
-| `SMTP_FROM` | From address for alert emails |
-| `ALERT_EMAIL_TO` | Default alert recipient when not overridden in DB settings |
-| `FRONTEND_PUBLIC_URL` | Optional link appended to alert emails (e.g. status page URL base) |
-
-Visit [http://127.0.0.1:8090](http://127.0.0.1:8090) for the dashboard. API documentation is available at `/docs`.
-
-### Monitor CRUD (demo/local)
-
-With `DEMO_MODE=true`, protected routes are open locally. In non-demo mode, pass `Authorization: Bearer $ADMIN_API_KEY`.
-
-```bash
-curl -X POST http://127.0.0.1:8090/api/v1/monitors \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Example API","url":"https://example.com","method":"GET"}'
-
-curl http://127.0.0.1:8090/api/v1/monitors
-
-curl -X POST http://127.0.0.1:8090/api/v1/checks/run/1
-```
-
-Manual checks record a row in `check_results`, update `monitor_states`, and return status code, response time, and success/failure details.
-
-### Monitor state and history
-
-Each monitor exposes aggregated state on monitor API responses:
-
-- `last_check_at`, `last_status` (`up`, `down`, `paused`, `unknown`)
-- `last_status_code`, `last_response_time_ms`, `consecutive_failures`
-- `uptime_ratio_24h`, `uptime_ratio_7d`
-
-Check history (admin):
-
-```bash
-curl -H "Authorization: Bearer $ADMIN_API_KEY" \
-  http://127.0.0.1:8090/api/v1/monitors/1/checks?limit=50
-```
-
-`/api/v1/summary` now also includes fleet fields (`monitors_total`, `monitors_up`, `monitors_down`, `monitors_paused`, `monitors_unknown`, `average_response_time_ms_24h`) while preserving the existing synthetic SLO/incident fields used by the portfolio dashboard.
-
-### Background scheduler (single-instance MVP)
-
-Enable automatic interval checks locally or on an always-on host:
-
-```bash
-SCHEDULER_ENABLED=true DEMO_MODE=true uvicorn service_monitor.app:app --host 127.0.0.1 --port 8090
-```
-
-Notes:
-
-- Scheduler is **single-instance** (one process). Horizontal scaling would need an external worker in a later milestone.
-- Default is `SCHEDULER_ENABLED=false` so public Render stays safe until you opt in.
-- Render free tier sleeps; scheduled checks are best for self-host/Docker or always-on deployments.
-- Old check rows are pruned after `DATA_RETENTION_DAYS` (default 7).
-
-### Public status pages (Milestone 4)
-
-The backend exposes a public JSON status page and admin routes to configure one default page (`slug=default`).
-
-Public (no auth):
-
-```bash
-curl https://service-health-incident-monitor.onrender.com/api/public/v1/status/default
-```
-
-Admin (Bearer `ADMIN_API_KEY` or `DEMO_MODE=true` locally):
-
-```bash
-curl -H "Authorization: Bearer $ADMIN_API_KEY" http://127.0.0.1:8090/api/v1/status-page
-curl -X PATCH -H "Authorization: Bearer $ADMIN_API_KEY" -H 'Content-Type: application/json' \
-  http://127.0.0.1:8090/api/v1/status-page \
-  -d '{"title":"Platform Status","show_response_times":false}'
-curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" -H 'Content-Type: application/json' \
-  http://127.0.0.1:8090/api/v1/status-page/components \
-  -d '{"name":"Core services","sort_order":0}'
-curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" \
-  http://127.0.0.1:8090/api/v1/status-page/components/1/monitors/1
-```
-
-Public JSON includes monitor names and statuses only (no URLs or admin metadata). `recent_incidents` lists the last five real incidents when any exist. There is no public HTML status page in this backend; the operations dashboard renders `/status/{slug}`.
-
-Status aggregation rules:
-
-- Paused monitors do not create an outage.
-- Any non-paused down monitor marks its component as `outage`.
-- Unknown monitors mark a component `unknown`, or `degraded` when mixed with healthy monitors.
-- Empty components (or only paused monitors) return `unknown`.
-- Overall status is the worst component status (`outage` > `unknown` > `degraded` > `operational`).
-
-**Coming later:** Slack/PagerDuty/webhooks and escalation policies.
-
-### Automatic incidents (Milestone 6)
-
-Failed monitor checks automatically create incidents when a monitor transitions to `down`. Recovery resolves the linked incident. Paused monitors do not create incidents.
-
-- One open incident per monitor outage (`monitor_states.open_incident_id` dedupes repeats).
-- Timeline updates are stored in `incident_updates` (failure details, recovery, manual notes).
-- `GET /api/v1/incidents` remains **public/read-only**. Synthetic demo incidents are returned only when no real incidents exist yet.
-- Admin routes support acknowledge, resolve, and manual timeline notes.
-
-```bash
-curl http://127.0.0.1:8090/api/v1/incidents
-curl http://127.0.0.1:8090/api/v1/incidents/1
-curl http://127.0.0.1:8090/api/v1/incidents/1/updates
-curl -X PATCH -H "Authorization: Bearer $ADMIN_API_KEY" -H 'Content-Type: application/json' \
-  http://127.0.0.1:8090/api/v1/incidents/1 -d '{"status":"acknowledged"}'
-curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" -H 'Content-Type: application/json' \
-  http://127.0.0.1:8090/api/v1/incidents/1/updates -d '{"message":"Investigating root cause."}'
-```
-
-`/api/v1/summary` `open_incident_count` reflects real open/acknowledged incidents when any DB incidents exist; otherwise the synthetic demo count is preserved.
-
-**Limitations:** no escalation policies, teams, or RBAC yet.
-
-### Email alerts (Milestone 5)
-
-Email alerts fire on monitor state transitions during check execution (manual or scheduled):
-
-- **Non-down → down:** one `[DOWN]` email per outage (deduped via `monitor_states.alert_open`).
-- **Down → up:** one `[RECOVERED]` email when `send_resolved` is enabled.
-- Failed SMTP delivery is recorded in `alert_events` but does not crash checks.
-
-Alerts require **both** `ALERTS_ENABLED=true` in env and `enabled=true` in persisted settings. SMTP credentials live in env only (`SMTP_PASSWORD` is never stored in the database or returned by the API). The companion dashboard settings UI shows masked/presence-only config.
-
-Admin settings (Bearer `ADMIN_API_KEY` or `DEMO_MODE=true` locally):
-
-```bash
-curl -H "Authorization: Bearer $ADMIN_API_KEY" http://127.0.0.1:8090/api/v1/settings/alerts
-curl -X PATCH -H "Authorization: Bearer $ADMIN_API_KEY" -H 'Content-Type: application/json' \
-  http://127.0.0.1:8090/api/v1/settings/alerts \
-  -d '{"enabled":true,"alert_to":"ops@example.com","send_resolved":true}'
-curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" \
-  http://127.0.0.1:8090/api/v1/settings/alerts/test
-curl -H "Authorization: Bearer $ADMIN_API_KEY" \
-  "http://127.0.0.1:8090/api/v1/settings/alerts/events?limit=50"
-```
-
-**Limitations:** no Slack, PagerDuty, webhooks, user accounts, or escalation policies yet. Keep `ALERTS_ENABLED=false` on Render until SMTP env vars are configured.
+The companion [operations-dashboard](https://github.com/mithulram/operations-dashboard) frontend provides the product UI (monitors, incidents, alerts, public status pages). This backend is the API and scheduler.
 
 ## Live demo
 
 | Service | URL |
 |---|---|
 | Backend API | https://service-health-incident-monitor.onrender.com |
-| Companion dashboard | https://operations-dashboard-b8v.pages.dev |
+| Dashboard UI | https://operations-dashboard-b8v.pages.dev |
+| Public status page | https://operations-dashboard-b8v.pages.dev/status/default |
 
-After deploying your own instance, verify with:
+## Quick self-host (~10 minutes)
+
+Requirements: [Docker](https://docs.docker.com/get-docker/) and Docker Compose.
 
 ```bash
-BACKEND_URL=https://service-health-incident-monitor.onrender.com python3 scripts/smoke_backend.py
+git clone https://github.com/mithulram/service-health-incident-monitor.git
+cd service-health-incident-monitor
+cp .env.example .env
+# Edit .env and set ADMIN_API_KEY to a long random secret
+docker compose up -d --build
+```
+
+The API listens on [http://127.0.0.1:8090](http://127.0.0.1:8090). SQLite data persists in `./data`.
+
+Verify the instance:
+
+```bash
+ADMIN_API_KEY=your-secret-from-env python3 scripts/smoke_self_host.py
+```
+
+Then run the [operations-dashboard](https://github.com/mithulram/operations-dashboard) locally with `VITE_API_BASE_URL=http://127.0.0.1:8090`, paste the same admin key in **Settings**, and manage monitors from the UI.
+
+### What Docker Compose sets by default
+
+| Setting | Self-host default | Why |
+|---|---|---|
+| `DEMO_MODE` | `false` | Protected routes require your admin key |
+| `SCHEDULER_ENABLED` | `true` | Automatic interval checks on an always-on host |
+| `ALERTS_ENABLED` | `false` | Opt in after SMTP env vars are configured |
+| `DATABASE_URL` | `sqlite:////app/data/service_monitor.db` | Persisted under `./data` volume |
+| `WEB_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Local dashboard dev server |
+
+Migrations run automatically on container start (`alembic upgrade head`).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph browser [Browser]
+    UI[operations-dashboard]
+    Public[/status/slug]
+  end
+
+  subgraph api [Monitor API]
+    Monitors[URL monitors]
+    Scheduler[Interval scheduler]
+    Incidents[Auto incidents]
+    Alerts[Email alerts]
+    Status[Public status JSON]
+  end
+
+  subgraph storage [Storage]
+    DB[(SQLite volume)]
+  end
+
+  UI -->|Bearer admin key| Monitors
+  UI --> Public
+  Public --> Status
+  Scheduler --> Monitors
+  Monitors --> DB
+  Monitors --> Incidents
+  Monitors --> Alerts
+  Incidents --> DB
+  Alerts -->|optional SMTP| Email[Email provider]
+  Status --> DB
+```
+
+The backend serves JSON only. HTML status pages and the admin UI live in the separate frontend repo.
+
+## Features
+
+- **URL monitors** — outbound HTTP/HEAD checks with SSRF protections and response-time history
+- **Scheduler** — single-process interval checks (ideal for Docker/self-host; not horizontally scaled yet)
+- **Automatic incidents** — one incident per outage, timeline updates, acknowledge/resolve via admin API
+- **Email alerts** — optional down/recovery emails via SMTP env vars (no secrets stored in DB)
+- **Public status page JSON** — `/api/public/v1/status/{slug}` for a companion frontend to render
+- **Admin auth** — `Authorization: Bearer $ADMIN_API_KEY` for mutating routes
+- **Portfolio-compatible SLO endpoints** — synthetic `/api/v1/summary` and `/metrics` remain for demo dashboards when no real fleet data exists
+
+## Local development (without Docker)
+
+Requirements: Python 3.11+.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[test]'
+alembic upgrade head
+DEMO_MODE=true uvicorn service_monitor.app:app --host 127.0.0.1 --port 8090 --reload
+```
+
+`DEMO_MODE=true` opens protected routes locally without an admin key. Use `DEMO_MODE=false` and `ADMIN_API_KEY=...` to match production behavior.
+
+API docs: [http://127.0.0.1:8090/docs](http://127.0.0.1:8090/docs)
+
+## Configuration
+
+Copy `.env.example` to `.env` for Docker Compose, or export variables for bare-metal runs.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:///./service_monitor.db` | SQLAlchemy database URL |
+| `ADMIN_API_KEY` | unset | Bearer token for admin routes when `DEMO_MODE=false` |
+| `DEMO_MODE` | `false` | When `true`, allows protected routes without a key (local dev only) |
+| `WEB_CORS_ORIGINS` | local Vite origins | Comma-separated exact browser origins |
+| `SCHEDULER_ENABLED` | `false` (bare metal), `true` (Compose) | Automatic interval checks |
+| `ALERTS_ENABLED` | `false` | Master switch for email alerts |
+| `SMTP_*`, `ALERT_EMAIL_TO` | unset | SMTP credentials (**env only**, never commit) |
+| `FRONTEND_PUBLIC_URL` | unset | Link appended to alert emails / status references |
+| `CHECK_TIMEOUT_SECONDS` | `5` | Default outbound check timeout |
+| `MAX_MONITORS` | `25` | Maximum persisted monitors |
+| `DATA_RETENTION_DAYS` | `7` | Prune old check results |
+
+## Security notes
+
+- Set a strong `ADMIN_API_KEY` in production. Never commit it or put it in a frontend build.
+- Keep `DEMO_MODE=false` on public deployments.
+- SMTP passwords belong in server env only; the API never returns them.
+- Outbound checks block private/loopback targets (SSRF guard).
+- CORS allows explicit origins only — no wildcard `*`.
+
+## Smoke tests
+
+**Deployed / remote backend:**
+
+```bash
 BACKEND_URL=https://service-health-incident-monitor.onrender.com \
 FRONTEND_ORIGIN=https://operations-dashboard-b8v.pages.dev \
-ADMIN_API_KEY=your-render-secret \
 python3 scripts/smoke_backend.py
 ```
 
-## Endpoint contract
+Pass `ADMIN_API_KEY` to also verify protected routes.
 
-| Endpoint | Purpose |
+**Self-hosted / local:**
+
+```bash
+BACKEND_URL=http://127.0.0.1:8090 \
+ADMIN_API_KEY=your-local-secret \
+python3 scripts/smoke_self_host.py
+```
+
+After `docker compose up`, allow startup time or set `SMOKE_WAIT_SECONDS=15`.
+
+## Companion frontend
+
+Deploy the [operations-dashboard](https://github.com/mithulram/operations-dashboard) separately:
+
+```bash
+VITE_API_BASE_URL=https://your-monitor-host.example.com npm run build
+npx wrangler pages deploy dist --project-name=operations-dashboard --branch=main
+```
+
+Set `WEB_CORS_ORIGINS` on this backend to your frontend origin. Users paste `ADMIN_API_KEY` into the dashboard **Settings** page (stored in browser localStorage only).
+
+## Deploy for free (Render)
+
+The public demo runs on [Render](https://render.com) with `DEMO_MODE=false`, ephemeral SQLite, and `SCHEDULER_ENABLED=false` (free tier sleeps).
+
+| Variable | Recommended Render value |
 |---|---|
-| `GET /healthz` | Lightweight liveness signal |
-| `GET /readyz` | Readiness signal |
-| `GET /api/v1/summary` | Request counts, availability, SLO target, error budget, open-incident count |
-| `GET /api/v1/slo` | SLO-focused summary |
-| `GET /api/v1/incidents` | Public incident list (DB incidents when present, else synthetic demo) |
-| `GET /api/v1/incidents/{id}` | Public incident detail |
-| `PATCH /api/v1/incidents/{id}` | Acknowledge or resolve incident (admin) |
-| `GET /api/v1/incidents/{id}/updates` | Incident timeline (public read) |
-| `POST /api/v1/incidents/{id}/updates` | Add timeline note (admin) |
-| `POST /api/v1/simulate/request` | Record a synthetic status code when `DEMO_MODE=true` (disabled otherwise) |
-| `GET /metrics` | Prometheus text-format metrics |
-| `GET /api/v1/monitors` | List persisted URL monitors (admin) |
-| `POST /api/v1/monitors` | Create monitor (admin) |
-| `GET /api/v1/monitors/{id}` | Get monitor (admin) |
-| `PATCH /api/v1/monitors/{id}` | Update monitor (admin) |
-| `DELETE /api/v1/monitors/{id}` | Delete monitor (admin) |
-| `POST /api/v1/checks/run/{id}` | Run one manual check now (admin) |
-| `GET /api/v1/monitors/{id}/checks` | Paginated check history, newest first (admin) |
-| `GET /api/public/v1/status/{slug}` | Public JSON status page (monitor names/status only) |
-| `GET /api/v1/status-page` | Read default status page config (admin) |
-| `PATCH /api/v1/status-page` | Update title, visibility, response-time display (admin) |
-| `POST /api/v1/status-page/components` | Create component (admin) |
-| `PATCH /api/v1/status-page/components/{id}` | Update component (admin) |
-| `DELETE /api/v1/status-page/components/{id}` | Delete component (admin) |
-| `POST /api/v1/status-page/components/{id}/monitors/{monitor_id}` | Assign monitor (admin) |
-| `DELETE /api/v1/status-page/components/{id}/monitors/{monitor_id}` | Remove monitor (admin) |
-| `GET /api/v1/settings/alerts` | Read alert settings (masked; no SMTP password) |
-| `PATCH /api/v1/settings/alerts` | Update enabled, recipient, send_resolved, optional SMTP host/port/from |
-| `POST /api/v1/settings/alerts/test` | Send a test alert email |
-| `GET /api/v1/settings/alerts/events` | Recent alert delivery events (admin) |
+| `DEMO_MODE` | `false` |
+| `ADMIN_API_KEY` | Strong secret in Render dashboard only |
+| `WEB_CORS_ORIGINS` | `https://operations-dashboard-b8v.pages.dev` |
+| `SCHEDULER_ENABLED` | `false` on free tier; use Docker self-host for scheduled checks |
+| `ALERTS_ENABLED` | `false` until SMTP is configured |
 
-## Operational model
+See [`render.yaml`](render.yaml) for a starter Blueprint.
 
-The monitor starts with 399 successful responses and 1 server error: 99.75% availability. For a 99.5% SLO target, that leaves 50% of the **process-lifetime synthetic** error budget. Recording a `5xx` response through the simulation endpoint lowers availability and consumes more of that budget. The calculation covers the in-memory lifetime of the demo process, not a calendar month.
+## API overview
 
-```bash
-DEMO_MODE=true uvicorn service_monitor.app:app --host 127.0.0.1 --port 8090
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /healthz`, `GET /readyz` | Public | Liveness / readiness |
+| `GET /api/v1/summary`, `GET /metrics` | Public | Fleet + synthetic SLO signals |
+| `GET /api/v1/incidents` | Public | Incident list (real or demo fallback) |
+| `GET /api/public/v1/status/{slug}` | Public | Public status page JSON |
+| `GET/POST/PATCH/DELETE /api/v1/monitors...` | Admin | Monitor CRUD and checks |
+| `GET/PATCH /api/v1/incidents/{id}...` | Mixed | Incident detail/timeline; mutations admin |
+| `GET/PATCH /api/v1/settings/alerts...` | Admin | Email alert settings |
+| `GET/PATCH /api/v1/status-page...` | Admin | Status page builder |
 
-curl -X POST http://127.0.0.1:8090/api/v1/simulate/request \
-  -H 'Content-Type: application/json' \
-  -d '{"status_code":503}'
+Full interactive docs: `/docs`
 
-curl http://127.0.0.1:8090/metrics
-```
+## Honest limitations
 
-## Verify
+This is a **lightweight MVP**, not an enterprise incident platform:
+
+- Single-instance scheduler (no horizontal worker pool yet)
+- SQLite by default (Postgres-compatible schema, but not tuned for large fleets)
+- Email alerts only — no Slack, PagerDuty, webhooks, or escalation policies
+- No teams, RBAC, or multi-tenant accounts
+- Synthetic SLO/error-budget endpoints remain for portfolio compatibility
+- Render free tier is fine for demos; use Docker self-host for reliable scheduled monitoring
+
+## Verify locally
 
 ```bash
-python3 -m unittest discover -s tests -v
-python3 -m compileall -q src tests
+.venv/bin/python -m compileall -q src tests
+.venv/bin/python -m unittest discover -s tests -v
+git diff --check
 ```
-
-The test suite checks health/readiness, SLO values, Prometheus response semantics, incident data, CORS behavior, and that an injected `503` reduces error-budget headroom.
-
-### Deployed backend smoke test
-
-After deploying, confirm the live API responds:
-
-```bash
-BACKEND_URL=https://your-service.onrender.com python3 scripts/smoke_backend.py
-BACKEND_URL=https://your-service.onrender.com \
-FRONTEND_ORIGIN=https://your-dashboard.pages.dev \
-python3 scripts/smoke_backend.py
-```
-
-## Deploy for free (Render Web Service)
-
-The public Render demo serves the portfolio **synthetic SLO/incident endpoints** (`/api/v1/summary`, `/api/v1/incidents`, `/metrics`). Milestone 1 also adds persisted URL monitors behind admin auth.
-
-### Production-safe Render settings
-
-| Variable | Recommended public Render value |
-|---|---|
-| `DEMO_MODE` | `false` (disables open monitor CRUD and `/api/v1/simulate/request`) |
-| `ADMIN_API_KEY` | Strong random secret set only in Render dashboard/CLI (never commit) |
-| `WEB_CORS_ORIGINS` | Exact frontend origin, e.g. `https://operations-dashboard-b8v.pages.dev` |
-| `DATABASE_URL` | Optional. Default SQLite file is **ephemeral on Render free tier** (data lost on redeploy/restart). Acceptable for demo; use external Postgres later for durable monitors. |
-
-Local development can keep `DEMO_MODE=true` for frictionless monitor CRUD without an admin key.
-
-Recommended host: [Render](https://render.com) Free Web Service (Python native runtime).
-
-| Setting | Value |
-|---|---|
-| Build command | `python -m pip install --upgrade pip && python -m pip install .` |
-| Start command | `uvicorn service_monitor.app:app --host 0.0.0.0 --port $PORT` |
-| Health check path | `/healthz` |
-
-A starter [`render.yaml`](render.yaml) Blueprint defaults to `DEMO_MODE=false` and prompts for secrets in the Render dashboard (`sync: false`).
-
-**Deployment order with the companion dashboard:**
-
-1. Deploy this backend and set `ADMIN_API_KEY`, `WEB_CORS_ORIGINS`, and `DEMO_MODE=false` in Render.
-2. Deploy the [operations-dashboard](https://github.com/mithulram/operations-dashboard) frontend with `VITE_API_BASE_URL` pointing at this backend.
-3. Run the smoke test below. Optionally pass `ADMIN_API_KEY` to verify protected monitor routes.
-
-**Docker (optional):** The included `Dockerfile` binds to `0.0.0.0` and uses port `8090` locally or `$PORT` when set:
-
-```bash
-docker build -t service-monitor .
-docker run --rm -p 8090:8090 -e DEMO_MODE=true service-monitor
-```
-
-**CORS:** Cross-origin browser access is limited to origins listed in `WEB_CORS_ORIGINS`. When unset, local dev defaults apply: `http://localhost:5173` and `http://127.0.0.1:5173`. Wildcard `*` is not used.
-
-## Design boundaries
-
-- Data is in-memory so a fresh clone runs immediately; a production implementation would source events from logs, traces, or a metrics backend.
-- The metrics output follows Prometheus's human-readable text exposition style but does not replace a Prometheus server, alert manager, or dashboard platform.
-- The `simulate` endpoint is intentionally a demo/testing hook and would not be publicly exposed in production.
-
-## Resume-ready description
-
-> Built a FastAPI service-health monitor that exposes readiness and Prometheus-format metrics, calculates a 99.5% availability SLO and error budget, correlates incidents with operational signals, and verifies fault-injection effects through HTTP tests.
 
 ## License
 
