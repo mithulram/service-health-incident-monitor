@@ -11,12 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
+from .api.v1.alert_settings import router as alert_settings_router
 from .api.public.status import router as public_status_router
 from .api.v1.monitors import router as monitors_router
 from .api.v1.status_page import router as status_page_router
 from .config import Settings, clear_settings_cache, cors_origins_from_settings, get_settings
 from .db.engine import check_database_connection, create_all_tables, dispose_engine, init_engine, session_scope
 from .scheduler import MonitorScheduler
+from .services.alerts import ensure_default_alert_settings
 from .services.fleet import fleet_summary
 from .services.status_pages import ensure_default_status_page
 from .state import MonitorState
@@ -65,6 +67,7 @@ def create_app(
         application.state.settings = resolved_settings
         with session_scope() as session:
             ensure_default_status_page(session)
+            ensure_default_alert_settings(session)
         scheduler = MonitorScheduler(resolved_settings)
         application.state.monitor_scheduler = scheduler
         scheduler.start()
@@ -74,7 +77,7 @@ def create_app(
 
     application = FastAPI(
         title="Service Health & Incident Monitor",
-        version="0.4.0",
+        version="0.5.0",
         lifespan=lifespan,
     )
     application.state.settings = resolved_settings
@@ -87,6 +90,7 @@ def create_app(
     )
     application.include_router(monitors_router)
     application.include_router(status_page_router)
+    application.include_router(alert_settings_router)
     application.include_router(public_status_router)
 
     @application.get("/", include_in_schema=False)
