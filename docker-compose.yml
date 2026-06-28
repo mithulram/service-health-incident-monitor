@@ -1,0 +1,22 @@
+services:
+  monitor:
+    build: .
+    ports:
+      - "${PORT:-8090}:8090"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: sqlite:////app/data/service_monitor.db
+      DEMO_MODE: ${DEMO_MODE:-false}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      ALERTS_ENABLED: ${ALERTS_ENABLED:-false}
+      WEB_CORS_ORIGINS: ${WEB_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

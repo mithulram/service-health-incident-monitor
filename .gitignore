@@ -13,3 +13,4 @@ dist/
 *.pem
 *.key
 service_monitor.db
+data/
