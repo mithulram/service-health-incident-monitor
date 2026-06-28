@@ -28,3 +28,56 @@ jobs:
         run: python -m compileall -q src tests
       - name: Run tests
         run: python -m unittest discover -s tests -v
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create smoke-test environment
+        run: |
+          cp .env.example .env
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path(".env")
+          lines = path.read_text(encoding="utf-8").splitlines()
+          replacements = {
+              "ADMIN_API_KEY": "ci-smoke-admin-key",
+              "DEMO_MODE": "false",
+              "SCHEDULER_ENABLED": "false",
+              "ALERTS_ENABLED": "false",
+          }
+          output = []
+          seen = set()
+          for line in lines:
+              if "=" in line and not line.lstrip().startswith("#"):
+                  key = line.split("=", 1)[0]
+                  if key in replacements:
+                      output.append(f"{key}={replacements[key]}")
+                      seen.add(key)
+                      continue
+              output.append(line)
+          for key, value in replacements.items():
+              if key not in seen:
+                  output.append(f"{key}={value}")
+          path.write_text("\n".join(output) + "\n", encoding="utf-8")
+          PY
+
+      - name: Build and start Docker Compose stack
+        run: docker compose up -d --build
+
+      - name: Run self-host smoke test
+        env:
+          BACKEND_URL: http://127.0.0.1:8090
+          ADMIN_API_KEY: ci-smoke-admin-key
+          SMOKE_WAIT_SECONDS: "15"
+        run: python3 scripts/smoke_self_host.py
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop Docker Compose stack
+        if: always()
+        run: docker compose down -v

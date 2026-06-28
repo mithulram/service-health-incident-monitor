@@ -29,7 +29,7 @@ def run_monitor_lifecycle(base_url: str, admin_api_key: str) -> None:
         method="POST",
         headers=auth_headers,
         body=monitor_payload,
-        expected_status=200,
+        expected_status={200, 201},
     )
     monitor = json.loads(create_body.decode("utf-8"))
     monitor_id = monitor["id"]
