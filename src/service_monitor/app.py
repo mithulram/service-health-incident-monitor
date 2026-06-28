@@ -23,6 +23,11 @@ from .scheduler import MonitorScheduler
 from .services.alerts import ensure_default_alert_settings
 from .services.fleet import fleet_summary
 from .services.incidents import get_open_incident_count, list_incidents_for_api
+from .services.public_demo import (
+    sample_incidents_payload,
+    sample_summary_payload,
+    should_use_public_sample_data,
+)
 from .services.status_pages import ensure_default_status_page
 from .state import MonitorState
 
@@ -112,14 +117,16 @@ def create_app(
         return {"status": "ready"}
 
     @application.get("/api/v1/summary")
-    def summary() -> dict[str, float | int | None]:
-        payload: dict[str, float | int | None] = dict(state.summary())
+    def summary() -> dict[str, float | int | bool | str | None]:
         with session_scope() as session:
+            if should_use_public_sample_data(session):
+                return sample_summary_payload(state.summary())
+            payload: dict[str, float | int | bool | str | None] = dict(state.summary())
             payload.update(fleet_summary(session))
             open_count = get_open_incident_count(session)
             if open_count is not None:
                 payload["open_incident_count"] = open_count
-        return payload
+            return payload
 
     @application.get("/api/v1/slo")
     def slo() -> dict[str, float | int]:
@@ -135,7 +142,9 @@ def create_app(
         with session_scope() as session:
             if repo.count_incidents(session) > 0:
                 return list_incidents_for_api(session)
-        return state.incidents()
+            if should_use_public_sample_data(session):
+                return sample_incidents_payload()
+        return []
 
     @application.post("/api/v1/simulate/request")
     def simulate_request(event: RequestSimulation) -> dict[str, float | int | str]:

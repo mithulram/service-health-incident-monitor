@@ -190,6 +190,20 @@ Ops Monitor supports **SQLite for easy local/self-host use** and **Postgres for 
 
 GitHub Actions CI runs the full unit test suite and `alembic upgrade head` against Postgres on every push.
 
+## Public demo data
+
+When no monitors or incidents are configured yet, **public read-only endpoints** may return in-memory sample preview data:
+
+| Endpoint | Sample behavior |
+|---|---|
+| `GET /api/v1/summary` | Fleet preview counts plus legacy SLO fields, with `is_sample_data: true` |
+| `GET /api/v1/incidents` | Small sample timeline with `is_sample: true` on each item |
+| `GET /api/public/v1/status/{slug}` | Status page structure preview without monitor URLs |
+
+Sample responses include optional markers such as `is_sample_data` and `sample_reason`. They are **not persisted** to the database and do **not** represent real uptime or outages.
+
+Once monitors or incidents exist, public endpoints return real data only. Protected admin routes (`/api/v1/monitors`, status-page builder, alerts, incident mutations) still require a valid `ADMIN_API_KEY` when `DEMO_MODE=false`.
+
 ## Deploy for free (Render)
 
 The public demo runs on [Render](https://render.com) with `DEMO_MODE=false`, ephemeral SQLite, and `SCHEDULER_ENABLED=false` (free tier sleeps).
@@ -238,8 +252,8 @@ When you are ready for durable production data, create a managed Postgres databa
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /healthz`, `GET /readyz` | Public | Liveness / readiness |
-| `GET /api/v1/summary`, `GET /metrics` | Public | Fleet + synthetic SLO signals |
-| `GET /api/v1/incidents` | Public | Incident list (real or demo fallback) |
+| `GET /api/v1/summary`, `GET /metrics` | Public | Fleet + SLO signals (sample preview when empty) |
+| `GET /api/v1/incidents` | Public | Incident list (sample preview when empty) |
 | `GET /api/public/v1/status/{slug}` | Public | Public status page JSON |
 | `GET/POST/PATCH/DELETE /api/v1/monitors...` | Admin | Monitor CRUD and checks |
 | `GET/PATCH /api/v1/incidents/{id}...` | Mixed | Incident detail/timeline; mutations admin |

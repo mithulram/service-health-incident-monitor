@@ -173,7 +173,8 @@ class SchedulerHistoryTests(unittest.TestCase):
         ):
             self.assertIn(key, payload)
 
-        self.assertEqual(payload["monitors_total"], 0)
+        self.assertEqual(payload["monitors_total"], 3)
+        self.assertTrue(payload["is_sample_data"])
         self.assertEqual(payload["requests_total"], 400)
 
     def test_scheduler_registers_active_monitor_only(self):

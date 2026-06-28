@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from ...db.engine import get_session
 from ...db import repositories as repo
+from ...services.public_demo import sample_public_status_payload, should_use_public_sample_data
 from ...services.status_pages import build_public_status_payload, ensure_default_status_page
 
 router = APIRouter(prefix="/api/public/v1", tags=["public-status"])
@@ -47,4 +48,6 @@ def get_public_status_page(slug: str, session: Session = Depends(get_session)) -
         raise HTTPException(status_code=404, detail="Status page not found.")
     if not page.is_public:
         raise HTTPException(status_code=404, detail="Status page not found.")
+    if should_use_public_sample_data(session):
+        return sample_public_status_payload(page)
     return build_public_status_payload(session, page)

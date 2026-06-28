@@ -79,8 +79,9 @@ class ServiceMonitorTests(unittest.TestCase):
         client = TestClient(create_app(MonitorState(), database_url=TEST_DB))
         incidents = client.get("/api/v1/incidents").json()
         self.assertEqual(len(incidents), 2)
-        self.assertEqual(incidents[0]["status"], "OPEN")
-        self.assertEqual(incidents[1]["status"], "RESOLVED")
+        self.assertTrue(all(incident["is_sample"] for incident in incidents))
+        statuses = {incident["status"] for incident in incidents}
+        self.assertEqual(statuses, {"OPEN", "RESOLVED"})
 
     def test_dashboard_builds_incident_rows_without_inner_html(self):
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")

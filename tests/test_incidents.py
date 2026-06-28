@@ -122,6 +122,7 @@ class AutoIncidentTests(unittest.TestCase):
         client = make_client()
         incidents = client.get("/api/v1/incidents").json()
         self.assertEqual(len(incidents), 2)
+        self.assertTrue(all(item["is_sample"] for item in incidents))
         self.assertIn("identifier", incidents[0])
         self.assertIn("service", incidents[0])
         self.assertIn("severity", incidents[0])

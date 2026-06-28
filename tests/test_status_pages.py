@@ -58,6 +58,7 @@ class StatusPageApiTests(unittest.TestCase):
         self.assertEqual(payload["title"], "Service Status")
         self.assertIn(payload["overall_status"], {"operational", "degraded", "outage", "unknown"})
         self.assertEqual(payload["recent_incidents"], [])
+        self.assertTrue(payload["is_sample_data"])
 
     def test_admin_status_page_requires_auth(self):
         client = make_client(demo_mode=False, admin_api_key="expected-secret")
@@ -160,13 +161,14 @@ class StatusPageApiTests(unittest.TestCase):
         monitor_payload = public_response.json()["components"][0]["monitors"][0]
         self.assertNotIn("last_response_time_ms", monitor_payload)
 
-    def test_empty_component_returns_unknown_status(self):
+    def test_empty_component_returns_sample_status_preview(self):
         client = make_client()
 
         public_response = client.get("/api/public/v1/status/default")
         payload = public_response.json()
-        self.assertEqual(payload["components"][0]["status"], "unknown")
-        self.assertEqual(payload["overall_status"], "unknown")
+        self.assertTrue(payload["is_sample_data"])
+        self.assertEqual(payload["overall_status"], "operational")
+        self.assertGreater(len(payload["components"][0]["monitors"]), 0)
 
     def test_paused_monitor_does_not_create_outage(self):
         client = make_client()
