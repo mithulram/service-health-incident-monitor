@@ -14,6 +14,7 @@ ENDPOINTS = (
     "/readyz",
     "/api/v1/summary",
     "/api/v1/incidents",
+    "/api/public/v1/status/default",
     "/metrics",
 )
 RETRY_ATTEMPTS = 3
@@ -154,6 +155,7 @@ def check_cors(base_url: str, frontend_origin: str) -> bool:
 
 def check_protected_routes(base_url: str, admin_api_key: str) -> bool:
     monitors_url = f"{base_url}/api/v1/monitors"
+    status_page_url = f"{base_url}/api/v1/status-page"
 
     deny_status, _ = request_with_retry(
         "Protected monitors without auth",
@@ -161,6 +163,13 @@ def check_protected_routes(base_url: str, admin_api_key: str) -> bool:
         expected_status=PROTECTED_DENY_STATUSES,
     )
     print(f"OK   /api/v1/monitors without auth: HTTP {deny_status} (protected)")
+
+    status_page_deny_status, _ = request_with_retry(
+        "Protected status page without auth",
+        status_page_url,
+        expected_status=PROTECTED_DENY_STATUSES,
+    )
+    print(f"OK   /api/v1/status-page without auth: HTTP {status_page_deny_status} (protected)")
 
     auth_headers = {"Authorization": f"Bearer {admin_api_key}"}
     status, payload = request_with_retry(
@@ -170,6 +179,17 @@ def check_protected_routes(base_url: str, admin_api_key: str) -> bool:
         expected_status=200,
     )
     print(f"OK   /api/v1/monitors with auth: HTTP {status} ({len(payload)} bytes)")
+
+    status_page_status, status_page_payload = request_with_retry(
+        "Protected status page with auth",
+        status_page_url,
+        headers=auth_headers,
+        expected_status=200,
+    )
+    print(
+        f"OK   /api/v1/status-page with auth: HTTP {status_page_status} "
+        f"({len(status_page_payload)} bytes)"
+    )
     return True
 
 
