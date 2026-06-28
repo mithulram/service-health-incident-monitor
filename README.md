@@ -2,7 +2,7 @@
 
 A runnable FastAPI service that models the operational concerns behind a cloud/platform role: health checks, Prometheus-compatible metrics, availability SLOs, error budgets, incidents, structured event logging, and a small dashboard backed by live API endpoints.
 
-> **Scope note:** The service still exposes synthetic in-memory SLO/incident demo endpoints for portfolio compatibility. Milestone 1–3 add persisted URL monitors, manual/scheduled checks, fleet summary, and admin auth. Milestone 4 adds a public JSON status page API and admin status-page management. Milestone 5 adds email alerts on monitor down/recovery (SMTP env only; no Slack/PagerDuty/webhooks yet). Public HTML rendering lives in the companion operations dashboard.
+> **Scope note:** The service still exposes synthetic in-memory SLO/incident demo endpoints for portfolio compatibility when no real incidents exist. Milestone 1–3 add persisted URL monitors, manual/scheduled checks, fleet summary, and admin auth. Milestone 4 adds a public JSON status page API and admin status-page management. Milestone 5 adds email alerts on monitor down/recovery (SMTP env only). Milestone 6 adds automatic incidents from monitor transitions with a timeline API. Public HTML rendering lives in the companion operations dashboard.
 
 ![Operational dashboard preview](docs/screenshots/monitor-dashboard.png)
 
@@ -131,7 +131,7 @@ curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" \
   http://127.0.0.1:8090/api/v1/status-page/components/1/monitors/1
 ```
 
-Public JSON includes monitor names and statuses only (no URLs or admin metadata). `recent_incidents` is empty until real incident correlation ships in a later milestone. There is no public HTML status page in this backend; the operations dashboard renders `/status/{slug}`.
+Public JSON includes monitor names and statuses only (no URLs or admin metadata). `recent_incidents` lists the last five real incidents when any exist. There is no public HTML status page in this backend; the operations dashboard renders `/status/{slug}`.
 
 Status aggregation rules:
 
@@ -141,7 +141,30 @@ Status aggregation rules:
 - Empty components (or only paused monitors) return `unknown`.
 - Overall status is the worst component status (`outage` > `unknown` > `degraded` > `operational`).
 
-**Coming later:** incident auto-create from consecutive failures, Slack/PagerDuty/webhooks, and escalation policies.
+**Coming later:** Slack/PagerDuty/webhooks and escalation policies.
+
+### Automatic incidents (Milestone 6)
+
+Failed monitor checks automatically create incidents when a monitor transitions to `down`. Recovery resolves the linked incident. Paused monitors do not create incidents.
+
+- One open incident per monitor outage (`monitor_states.open_incident_id` dedupes repeats).
+- Timeline updates are stored in `incident_updates` (failure details, recovery, manual notes).
+- `GET /api/v1/incidents` remains **public/read-only**. Synthetic demo incidents are returned only when no real incidents exist yet.
+- Admin routes support acknowledge, resolve, and manual timeline notes.
+
+```bash
+curl http://127.0.0.1:8090/api/v1/incidents
+curl http://127.0.0.1:8090/api/v1/incidents/1
+curl http://127.0.0.1:8090/api/v1/incidents/1/updates
+curl -X PATCH -H "Authorization: Bearer $ADMIN_API_KEY" -H 'Content-Type: application/json' \
+  http://127.0.0.1:8090/api/v1/incidents/1 -d '{"status":"acknowledged"}'
+curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" -H 'Content-Type: application/json' \
+  http://127.0.0.1:8090/api/v1/incidents/1/updates -d '{"message":"Investigating root cause."}'
+```
+
+`/api/v1/summary` `open_incident_count` reflects real open/acknowledged incidents when any DB incidents exist; otherwise the synthetic demo count is preserved.
+
+**Limitations:** no escalation policies, teams, or RBAC yet.
 
 ### Email alerts (Milestone 5)
 
@@ -193,7 +216,11 @@ python3 scripts/smoke_backend.py
 | `GET /readyz` | Readiness signal |
 | `GET /api/v1/summary` | Request counts, availability, SLO target, error budget, open-incident count |
 | `GET /api/v1/slo` | SLO-focused summary |
-| `GET /api/v1/incidents` | Synthetic incident context |
+| `GET /api/v1/incidents` | Public incident list (DB incidents when present, else synthetic demo) |
+| `GET /api/v1/incidents/{id}` | Public incident detail |
+| `PATCH /api/v1/incidents/{id}` | Acknowledge or resolve incident (admin) |
+| `GET /api/v1/incidents/{id}/updates` | Incident timeline (public read) |
+| `POST /api/v1/incidents/{id}/updates` | Add timeline note (admin) |
 | `POST /api/v1/simulate/request` | Record a synthetic status code when `DEMO_MODE=true` (disabled otherwise) |
 | `GET /metrics` | Prometheus text-format metrics |
 | `GET /api/v1/monitors` | List persisted URL monitors (admin) |
