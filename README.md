@@ -2,7 +2,7 @@
 
 A runnable FastAPI service that models the operational concerns behind a cloud/platform role: health checks, Prometheus-compatible metrics, availability SLOs, error budgets, incidents, structured event logging, and a small dashboard backed by live API endpoints.
 
-> **Scope note:** The service still exposes synthetic in-memory SLO/incident demo endpoints for portfolio compatibility. Milestone 1–3 add persisted URL monitors, manual/scheduled checks, fleet summary, and admin auth. Milestone 4 adds a public JSON status page API and admin status-page management. Public HTML rendering lives in the companion operations dashboard. Alerting and real incident correlation are not implemented yet.
+> **Scope note:** The service still exposes synthetic in-memory SLO/incident demo endpoints for portfolio compatibility. Milestone 1–3 add persisted URL monitors, manual/scheduled checks, fleet summary, and admin auth. Milestone 4 adds a public JSON status page API and admin status-page management. Milestone 5 adds email alerts on monitor down/recovery (SMTP env only; no Slack/PagerDuty/webhooks yet). Public HTML rendering lives in the companion operations dashboard.
 
 ![Operational dashboard preview](docs/screenshots/monitor-dashboard.png)
 
@@ -47,6 +47,15 @@ By default the service stores monitors in `./service_monitor.db`. Override with 
 | `SCHEDULER_ENABLED` | Run automatic interval checks (default `false`) |
 | `MAX_CONCURRENT_CHECKS` | Cap concurrent outbound checks (default `10`) |
 | `DATA_RETENTION_DAYS` | Prune `check_results` older than N days (default `7`) |
+| `ALERTS_ENABLED` | Master env switch for email alerts (default `false`) |
+| `ALERT_SEND_RESOLVED` | Send recovery emails when a monitor returns to `up` (default `true`) |
+| `SMTP_HOST` | SMTP server hostname (Render env only; never commit) |
+| `SMTP_PORT` | SMTP port (default `587`) |
+| `SMTP_USERNAME` | SMTP auth username (optional for some providers) |
+| `SMTP_PASSWORD` | SMTP auth password (**env only**, never stored in DB or returned by API) |
+| `SMTP_FROM` | From address for alert emails |
+| `ALERT_EMAIL_TO` | Default alert recipient when not overridden in DB settings |
+| `FRONTEND_PUBLIC_URL` | Optional link appended to alert emails (e.g. status page URL base) |
 
 Visit [http://127.0.0.1:8090](http://127.0.0.1:8090) for the dashboard. API documentation is available at `/docs`.
 
@@ -132,7 +141,32 @@ Status aggregation rules:
 - Empty components (or only paused monitors) return `unknown`.
 - Overall status is the worst component status (`outage` > `unknown` > `degraded` > `operational`).
 
-**Coming later:** incident auto-create from consecutive failures and email alerting.
+**Coming later:** incident auto-create from consecutive failures, Slack/PagerDuty/webhooks, and escalation policies.
+
+### Email alerts (Milestone 5)
+
+Email alerts fire on monitor state transitions during check execution (manual or scheduled):
+
+- **Non-down → down:** one `[DOWN]` email per outage (deduped via `monitor_states.alert_open`).
+- **Down → up:** one `[RECOVERED]` email when `send_resolved` is enabled.
+- Failed SMTP delivery is recorded in `alert_events` but does not crash checks.
+
+Alerts require **both** `ALERTS_ENABLED=true` in env and `enabled=true` in persisted settings. SMTP credentials live in env only (`SMTP_PASSWORD` is never stored in the database or returned by the API). The companion dashboard settings UI shows masked/presence-only config.
+
+Admin settings (Bearer `ADMIN_API_KEY` or `DEMO_MODE=true` locally):
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_API_KEY" http://127.0.0.1:8090/api/v1/settings/alerts
+curl -X PATCH -H "Authorization: Bearer $ADMIN_API_KEY" -H 'Content-Type: application/json' \
+  http://127.0.0.1:8090/api/v1/settings/alerts \
+  -d '{"enabled":true,"alert_to":"ops@example.com","send_resolved":true}'
+curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" \
+  http://127.0.0.1:8090/api/v1/settings/alerts/test
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "http://127.0.0.1:8090/api/v1/settings/alerts/events?limit=50"
+```
+
+**Limitations:** no Slack, PagerDuty, webhooks, user accounts, or escalation policies yet. Keep `ALERTS_ENABLED=false` on Render until SMTP env vars are configured.
 
 ## Live demo
 
@@ -177,6 +211,10 @@ python3 scripts/smoke_backend.py
 | `DELETE /api/v1/status-page/components/{id}` | Delete component (admin) |
 | `POST /api/v1/status-page/components/{id}/monitors/{monitor_id}` | Assign monitor (admin) |
 | `DELETE /api/v1/status-page/components/{id}/monitors/{monitor_id}` | Remove monitor (admin) |
+| `GET /api/v1/settings/alerts` | Read alert settings (masked; no SMTP password) |
+| `PATCH /api/v1/settings/alerts` | Update enabled, recipient, send_resolved, optional SMTP host/port/from |
+| `POST /api/v1/settings/alerts/test` | Send a test alert email |
+| `GET /api/v1/settings/alerts/events` | Recent alert delivery events (admin) |
 
 ## Operational model
 
