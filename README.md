@@ -2,7 +2,7 @@
 
 A runnable FastAPI service that models the operational concerns behind a cloud/platform role: health checks, Prometheus-compatible metrics, availability SLOs, error budgets, incidents, structured event logging, and a small dashboard backed by live API endpoints.
 
-> **Scope note:** The service still exposes synthetic in-memory SLO/incident demo endpoints for portfolio compatibility. Milestone 1 adds persisted URL monitors, manual checks, and admin auth. Scheduled checks, status pages, and alerting are not implemented yet. This is early product foundation, not a full production monitoring platform.
+> **Scope note:** The service still exposes synthetic in-memory SLO/incident demo endpoints for portfolio compatibility. Milestone 1–3 add persisted URL monitors, manual/scheduled checks, fleet summary, and admin auth. Milestone 4 adds a public JSON status page API and admin status-page management. Public HTML rendering lives in the companion operations dashboard. Alerting and real incident correlation are not implemented yet.
 
 ![Operational dashboard preview](docs/screenshots/monitor-dashboard.png)
 
@@ -98,7 +98,41 @@ Notes:
 - Render free tier sleeps; scheduled checks are best for self-host/Docker or always-on deployments.
 - Old check rows are pruned after `DATA_RETENTION_DAYS` (default 7).
 
-**Coming later:** incident auto-create from consecutive failures, public status pages, and email alerting.
+### Public status pages (Milestone 4)
+
+The backend exposes a public JSON status page and admin routes to configure one default page (`slug=default`).
+
+Public (no auth):
+
+```bash
+curl https://service-health-incident-monitor.onrender.com/api/public/v1/status/default
+```
+
+Admin (Bearer `ADMIN_API_KEY` or `DEMO_MODE=true` locally):
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_API_KEY" http://127.0.0.1:8090/api/v1/status-page
+curl -X PATCH -H "Authorization: Bearer $ADMIN_API_KEY" -H 'Content-Type: application/json' \
+  http://127.0.0.1:8090/api/v1/status-page \
+  -d '{"title":"Platform Status","show_response_times":false}'
+curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" -H 'Content-Type: application/json' \
+  http://127.0.0.1:8090/api/v1/status-page/components \
+  -d '{"name":"Core services","sort_order":0}'
+curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" \
+  http://127.0.0.1:8090/api/v1/status-page/components/1/monitors/1
+```
+
+Public JSON includes monitor names and statuses only (no URLs or admin metadata). `recent_incidents` is empty until real incident correlation ships in a later milestone. There is no public HTML status page in this backend; the operations dashboard renders `/status/{slug}`.
+
+Status aggregation rules:
+
+- Paused monitors do not create an outage.
+- Any non-paused down monitor marks its component as `outage`.
+- Unknown monitors mark a component `unknown`, or `degraded` when mixed with healthy monitors.
+- Empty components (or only paused monitors) return `unknown`.
+- Overall status is the worst component status (`outage` > `unknown` > `degraded` > `operational`).
+
+**Coming later:** incident auto-create from consecutive failures and email alerting.
 
 ## Live demo
 
@@ -135,6 +169,14 @@ python3 scripts/smoke_backend.py
 | `DELETE /api/v1/monitors/{id}` | Delete monitor (admin) |
 | `POST /api/v1/checks/run/{id}` | Run one manual check now (admin) |
 | `GET /api/v1/monitors/{id}/checks` | Paginated check history, newest first (admin) |
+| `GET /api/public/v1/status/{slug}` | Public JSON status page (monitor names/status only) |
+| `GET /api/v1/status-page` | Read default status page config (admin) |
+| `PATCH /api/v1/status-page` | Update title, visibility, response-time display (admin) |
+| `POST /api/v1/status-page/components` | Create component (admin) |
+| `PATCH /api/v1/status-page/components/{id}` | Update component (admin) |
+| `DELETE /api/v1/status-page/components/{id}` | Delete component (admin) |
+| `POST /api/v1/status-page/components/{id}/monitors/{monitor_id}` | Assign monitor (admin) |
+| `DELETE /api/v1/status-page/components/{id}/monitors/{monitor_id}` | Remove monitor (admin) |
 
 ## Operational model
 
