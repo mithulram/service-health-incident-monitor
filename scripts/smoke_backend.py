@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -11,7 +12,6 @@ import urllib.request
 
 ENDPOINTS = (
     "/healthz",
-    "/readyz",
     "/api/v1/summary",
     "/api/v1/incidents",
     "/api/public/v1/status/default",
@@ -107,6 +107,23 @@ def check(base_url: str, path: str) -> bool:
     url = f"{base_url}{path}"
     status, payload = request_with_retry(path, url)
     print(f"OK   {path}: HTTP {status} ({len(payload)} bytes)")
+    return True
+
+
+def check_readyz(base_url: str) -> bool:
+    url = f"{base_url}/readyz"
+    status, payload = request_with_retry("/readyz", url, expected_status=200)
+    try:
+        body = json.loads(payload.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"/readyz returned non-JSON body: {preview_body(payload)}") from exc
+
+    if body.get("status") != "ready":
+        raise RuntimeError(
+            f"/readyz database readiness check failed: expected status=ready, got {preview_body(payload)}"
+        )
+
+    print(f"OK   /readyz: HTTP {status} ({len(payload)} bytes, database reachable)")
     return True
 
 
@@ -226,6 +243,7 @@ def main() -> int:
     print(f"Checking backend at {backend_url}")
     try:
         results = [check(backend_url, path) for path in ENDPOINTS]
+        results.append(check_readyz(backend_url))
 
         if frontend_origin:
             print(f"Checking CORS for origin {frontend_origin}")

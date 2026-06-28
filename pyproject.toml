@@ -21,8 +21,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2,<4"]
 test = ["httpx>=0.27,<1"]
-dev = ["httpx>=0.27,<1"]
+dev = ["httpx>=0.27,<1", "psycopg[binary]>=3.2,<4"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

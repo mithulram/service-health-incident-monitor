@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="sqlite:///./service_monitor.db",
         alias="DATABASE_URL",
+        description=(
+            "SQLAlchemy URL. Use sqlite:///./service_monitor.db locally or "
+            "postgresql+psycopg://USER:PASSWORD@HOST:PORT/DBNAME for durable production Postgres."
+        ),
     )
     admin_api_key: str | None = Field(default=None, alias="ADMIN_API_KEY")
     demo_mode: bool = Field(default=False, alias="DEMO_MODE")

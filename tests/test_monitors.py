@@ -4,13 +4,15 @@ from unittest import mock
 import httpx
 from fastapi.testclient import TestClient
 
+import support  # noqa: F401  # installs Postgres test isolation when DATABASE_URL is set
+from support import test_database_url
 from service_monitor.app import create_app
 from service_monitor.config import Settings
 from service_monitor.ssrf import SSRFError, validate_monitor_url
 from service_monitor.state import MonitorState
 
 
-MEMORY_DB = "sqlite:///:memory:"
+MEMORY_DB = test_database_url()
 PUBLIC_MONITOR = {
     "name": "Example API",
     "url": "https://example.com/health",

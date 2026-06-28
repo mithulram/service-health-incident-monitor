@@ -114,7 +114,7 @@ Copy `.env.example` to `.env` for Docker Compose, or export variables for bare-m
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:///./service_monitor.db` | SQLAlchemy database URL |
+| `DATABASE_URL` | `sqlite:///./service_monitor.db` | SQLAlchemy database URL — see [Production database durability](#production-database-durability) |
 | `ADMIN_API_KEY` | unset | Bearer token for admin routes when `DEMO_MODE=false` |
 | `DEMO_MODE` | `false` | When `true`, allows protected routes without a key (local dev only) |
 | `WEB_CORS_ORIGINS` | local Vite origins | Comma-separated exact browser origins |
@@ -146,6 +146,8 @@ python3 scripts/smoke_backend.py
 
 Pass `ADMIN_API_KEY` to also verify protected routes.
 
+`/readyz` must return HTTP 200 with `{"status":"ready"}` — the smoke test fails if the database is unreachable.
+
 **Self-hosted / local:**
 
 ```bash
@@ -167,17 +169,52 @@ npx wrangler pages deploy dist --project-name=operations-dashboard --branch=main
 
 Set `WEB_CORS_ORIGINS` on this backend to your frontend origin. Users paste `ADMIN_API_KEY` into the dashboard **Settings** page (stored in browser localStorage only).
 
+## Production database durability
+
+Ops Monitor supports **SQLite for easy local/self-host use** and **Postgres for durable production data**.
+
+| Environment | Recommended `DATABASE_URL` | Notes |
+|---|---|---|
+| Local dev / Docker self-host | `sqlite:///./service_monitor.db` or `sqlite:////app/data/service_monitor.db` | File-backed SQLite under `./data` volume in Compose |
+| Render free demo | SQLite (default) | Ephemeral filesystem — monitors, check history, and incidents can disappear after deploy or restart |
+| Production / always-on | `postgresql+psycopg://USER:PASSWORD@HOST:5432/DBNAME` | Managed Postgres from any provider (Render Postgres, Neon, Supabase, RDS, etc.) |
+
+**Rules of thumb:**
+
+- SQLite is fine for demos, local development, and single-node Docker self-host with a persisted volume.
+- Render free-tier disk is **not** durable for SQLite — treat it as demo-only storage.
+- For production, point `DATABASE_URL` at managed Postgres and install the driver: `python -m pip install '.[postgres]'`.
+- Keep database credentials in **Render environment variables** or your host's secret store — never commit them.
+- Run migrations before or during deploy: `alembic upgrade head` (Docker entrypoint does this automatically).
+- After changing `DATABASE_URL`, redeploy the backend and run `scripts/smoke_backend.py` — `/readyz` verifies database connectivity.
+
+GitHub Actions CI runs the full unit test suite and `alembic upgrade head` against Postgres on every push.
+
 ## Deploy for free (Render)
 
 The public demo runs on [Render](https://render.com) with `DEMO_MODE=false`, ephemeral SQLite, and `SCHEDULER_ENABLED=false` (free tier sleeps).
 
 | Variable | Recommended Render value |
 |---|---|
+| `DATABASE_URL` | `sqlite:///./service_monitor.db` for demo only; use a managed Postgres URL for durable production |
 | `DEMO_MODE` | `false` |
 | `ADMIN_API_KEY` | Strong secret in Render dashboard only |
 | `WEB_CORS_ORIGINS` | `https://operations-dashboard-b8v.pages.dev` |
-| `SCHEDULER_ENABLED` | `false` on free tier; use Docker self-host for scheduled checks |
+| `SCHEDULER_ENABLED` | `false` on free tier unless using an always-on paid plan |
 | `ALERTS_ENABLED` | `false` until SMTP is configured |
+| `SMTP_*`, `ALERT_EMAIL_TO` | Optional — configure only when email alerts are enabled |
+
+For Postgres on Render or any provider, set:
+
+```bash
+DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/DBNAME
+```
+
+Update the Render **build command** to install the Postgres driver when using Postgres:
+
+```bash
+python -m pip install --upgrade pip && python -m pip install '.[postgres]'
+```
 
 See [`render.yaml`](render.yaml) for a starter Blueprint.
 
@@ -194,7 +231,7 @@ The workflow runs Python 3.13 tests (`compileall`, unit tests), then `POST`s to 
 
 Keep `ADMIN_API_KEY` in Render environment variables only — never in GitHub secrets for build, frontend env, or committed files.
 
-For durable production data beyond Render free-tier ephemeral storage, plan to move `DATABASE_URL` to external managed Postgres when you outgrow demo SQLite.
+When you are ready for durable production data, create a managed Postgres database and set `DATABASE_URL` in Render — see [Production database durability](#production-database-durability). This milestone does not require changing the live demo database yet.
 
 ## API overview
 
@@ -225,7 +262,7 @@ This is a **lightweight MVP**, not an enterprise incident platform:
 ## Verify locally
 
 ```bash
-.venv/bin/python -m compileall -q src tests
+.venv/bin/python -m compileall -q src tests scripts alembic
 .venv/bin/python -m unittest discover -s tests -v
 git diff --check
 ```
