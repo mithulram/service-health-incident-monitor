@@ -181,6 +181,21 @@ The public demo runs on [Render](https://render.com) with `DEMO_MODE=false`, eph
 
 See [`render.yaml`](render.yaml) for a starter Blueprint.
 
+### Manual GitHub Actions deploy to Render
+
+Use a Render **deploy hook** (not a committed API token) to trigger production redeploys after tests pass.
+
+1. In the Render dashboard, open your web service → **Settings → Deploy Hook** → create a hook and copy the URL once.
+2. In GitHub → **Settings → Secrets and variables → Actions**, add:
+   - `RENDER_DEPLOY_HOOK_URL` — the full deploy hook URL from Render
+3. Open **Actions → Deploy to Render → Run workflow** on `main`.
+
+The workflow runs Python 3.13 tests (`compileall`, unit tests), then `POST`s to the hook. The hook URL is never printed in logs.
+
+Keep `ADMIN_API_KEY` in Render environment variables only — never in GitHub secrets for build, frontend env, or committed files.
+
+For durable production data beyond Render free-tier ephemeral storage, plan to move `DATABASE_URL` to external managed Postgres when you outgrow demo SQLite.
+
 ## API overview
 
 | Endpoint | Auth | Purpose |
