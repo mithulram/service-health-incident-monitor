@@ -58,17 +58,17 @@ jobs:
         run: python -m compileall -q src tests scripts alembic
       - name: Run Alembic migrations against Postgres
         run: alembic upgrade head
-      - name: Run tests against Postgres
+      - name: Run Postgres integration tests
+        run: python -m unittest discover -s tests -p 'test_postgres_migrations.py' -v
+      - name: Run unit tests against Postgres
         run: |
           shopt -s nullglob
           for test_file in tests/test_*.py; do
             base_name="$(basename "${test_file}")"
             case "${base_name}" in
-              test_smoke_self_host.py) continue ;;
+              test_smoke_self_host.py|test_postgres_migrations.py) continue ;;
             esac
             echo "Running ${base_name} against Postgres"
-            alembic downgrade base
-            alembic upgrade head
             python -m unittest discover -s tests -p "${base_name}" -v
           done
 
