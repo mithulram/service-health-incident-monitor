@@ -92,6 +92,8 @@ jobs:
         run: |
           export DATABASE_URL="postgresql+psycopg://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}"
           alembic upgrade head
+      - name: Verify Postgres schema connectivity
+        run: python3 scripts/verify_postgres_migration.py
       - name: Run Postgres integration tests
         run: |
           unset DATABASE_URL
@@ -106,6 +108,10 @@ jobs:
               test_smoke_self_host.py|test_postgres_migrations.py) continue ;;
             esac
             echo "Running ${base_name} against Postgres"
+            export DATABASE_URL="postgresql+psycopg://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+            alembic downgrade base
+            alembic upgrade head
+            unset DATABASE_URL
             python -m unittest discover -s tests -p "${base_name}" -v
           done
 
